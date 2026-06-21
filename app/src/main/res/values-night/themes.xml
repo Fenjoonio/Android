@@ -5,7 +5,7 @@
         <item name="android:navigationBarColor">@color/fenjoon_background</item>
         <item name="android:windowBackground">@color/fenjoon_background</item>
         <item name="colorPrimary">@color/fenjoon_primary</item>
-        <item name="colorOnPrimary">@color/fenjoon_soft_background</item>
+        <item name="colorOnPrimary">@color/fenjoon_foreground</item>
         <item name="colorSurface">@color/fenjoon_background</item>
         <item name="colorOnSurface">@color/fenjoon_foreground</item>
         <item name="colorOutline">@color/fenjoon_border</item>
