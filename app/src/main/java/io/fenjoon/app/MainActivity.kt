@@ -2,13 +2,21 @@ package io.fenjoon.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -90,6 +98,7 @@ fun FenjoonWebView(
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
     var isLoading by remember { mutableStateOf(true) }
     var hasError by remember { mutableStateOf(false) }
+    var isOnline by remember { mutableStateOf(context.isOnline()) }
     val webView = remember {
         WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -103,8 +112,53 @@ fun FenjoonWebView(
             )
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.databaseEnabled = true
+            settings.cacheMode = if (isOnline) {
+                WebSettings.LOAD_NO_CACHE
+            } else {
+                WebSettings.LOAD_CACHE_ELSE_NETWORK
+            }
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
+        }
+    }
+
+    DisposableEffect(context, webView) {
+        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
+        val mainHandler = Handler(Looper.getMainLooper())
+        val networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                mainHandler.post { isOnline = true }
+            }
+
+            override fun onLost(network: Network) {
+                mainHandler.post { isOnline = context.isOnline() }
+            }
+        }
+
+        connectivityManager.registerNetworkCallback(
+            NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build(),
+            networkCallback
+        )
+
+        onDispose {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        }
+    }
+
+    LaunchedEffect(isOnline) {
+        webView.settings.cacheMode = if (isOnline) {
+            WebSettings.LOAD_NO_CACHE
+        } else {
+            WebSettings.LOAD_CACHE_ELSE_NETWORK
+        }
+
+        if (isOnline && hasError) {
+            hasError = false
+            isLoading = true
+            webView.reload()
         }
     }
 
@@ -234,6 +288,14 @@ private class FenjoonWebViewClient(
 private fun Intent?.toFenjoonUrl(): String {
     val url = this?.data ?: return FENJOON_URL
     return if (url.isFenjoonUrl()) url.toString() else FENJOON_URL
+}
+
+private fun Context.isOnline(): Boolean {
+    val connectivityManager = getSystemService(ConnectivityManager::class.java)
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }
 
 private fun Uri.isFenjoonUrl(): Boolean {
