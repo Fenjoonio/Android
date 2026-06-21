@@ -10,10 +10,13 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -106,6 +109,11 @@ fun FenjoonWebView(
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
             setBackgroundColor(backgroundColor)
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            overScrollMode = WebView.OVER_SCROLL_NEVER
+            scrollBarStyle = WebView.SCROLLBARS_INSIDE_OVERLAY
             webViewClient = FenjoonWebViewClient(
                 onLoadingChanged = { isLoading = it },
                 onError = { hasError = true }
@@ -113,13 +121,21 @@ fun FenjoonWebView(
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
+            settings.loadsImagesAutomatically = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             settings.cacheMode = if (isOnline) {
-                WebSettings.LOAD_NO_CACHE
+                WebSettings.LOAD_DEFAULT
             } else {
                 WebSettings.LOAD_CACHE_ELSE_NETWORK
             }
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
+            settings.setSupportZoom(false)
+            CookieManager.getInstance().setAcceptCookie(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            }
         }
     }
 
@@ -150,7 +166,7 @@ fun FenjoonWebView(
 
     LaunchedEffect(isOnline) {
         webView.settings.cacheMode = if (isOnline) {
-            WebSettings.LOAD_NO_CACHE
+            WebSettings.LOAD_DEFAULT
         } else {
             WebSettings.LOAD_CACHE_ELSE_NETWORK
         }
