@@ -3,4 +3,12 @@
     <string name="error_title">Connection failed!</string>
     <string name="error_message">Please check your internet connection and try again.</string>
     <string name="error_retry">Try again</string>
+    <string name="notification_channel_name">Fenjoon notifications</string>
+    <string name="notification_channel_description">Updates and messages from Fenjoon</string>
+    <string name="urgent_notification_channel_name">Important Fenjoon notifications</string>
+    <string name="urgent_notification_channel_description">Important alerts that can vibrate and appear on the lock screen</string>
+    <string name="silent_notification_channel_name">Silent Fenjoon reminders</string>
+    <string name="silent_notification_channel_description">Daily reminders without sound or vibration</string>
+    <string name="notification_default_title">Fenjoon</string>
+    <string name="daily_reminder_title">خوندن داستان‌های امروز یادت نره!</string>
 </resources>

@@ -3,4 +3,12 @@
     <string name="error_title">اتصال برقرار نشد!</string>
     <string name="error_message">لطفاً اتصال اینترنت خود را بررسی و دوباره تلاش کنید.</string>
     <string name="error_retry">تلاش دوباره</string>
+    <string name="notification_channel_name">اعلان‌های فنجون</string>
+    <string name="notification_channel_description">به‌روزرسانی‌ها و پیام‌های فنجون</string>
+    <string name="urgent_notification_channel_name">اعلان‌های مهم فنجون</string>
+    <string name="urgent_notification_channel_description">هشدارهای مهم که می‌توانند با لرزش روی صفحه قفل نمایش داده شوند</string>
+    <string name="silent_notification_channel_name">یادآوری‌های بی‌صدای فنجون</string>
+    <string name="silent_notification_channel_description">یادآوری‌های روزانه بدون صدا و لرزش</string>
+    <string name="notification_default_title">فنجون</string>
+    <string name="daily_reminder_title">خوندن داستان‌های امروز یادت نره!</string>
 </resources>

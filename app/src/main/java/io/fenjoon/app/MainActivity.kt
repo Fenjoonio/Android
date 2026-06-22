@@ -1,10 +1,12 @@
 package io.fenjoon.app
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
@@ -15,6 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -26,6 +29,7 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -59,20 +63,37 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import com.google.firebase.Firebase
+import com.google.firebase.messaging.messaging
+import io.fenjoon.app.notifications.DailyReminderScheduler
+import io.fenjoon.app.notifications.FenjoonNotificationHelper
 import io.fenjoon.app.ui.theme.FenjoonTheme
+import org.json.JSONObject
 
 private const val FENJOON_URL = "https://app.fenjoon.io"
 private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
 private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
+private const val TAG = "FenjoonMainActivity"
 
 class MainActivity : ComponentActivity() {
     private var currentUrl by mutableStateOf(FENJOON_START_URL)
+    private var fcmToken by mutableStateOf<String?>(null)
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        Log.d(TAG, "Notification permission granted: $isGranted")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         currentUrl = intent.toFenjoonUrl()
+        FenjoonNotificationHelper.createDefaultChannel(this)
+        DailyReminderScheduler.schedule(this)
+        requestNotificationPermissionIfNeeded()
+        fetchFirebaseMessagingToken()
         enableEdgeToEdge()
         setContent {
             FenjoonTheme {
@@ -82,7 +103,10 @@ class MainActivity : ComponentActivity() {
                         .background(MaterialTheme.colorScheme.background)
                         .windowInsetsPadding(WindowInsets.safeDrawing)
                 ) {
-                    FenjoonWebView(url = currentUrl)
+                    FenjoonWebView(
+                        url = currentUrl,
+                        fcmToken = fcmToken
+                    )
                 }
             }
         }
@@ -93,13 +117,39 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         currentUrl = intent.toFenjoonUrl()
     }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val permissionState = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        )
+        if (permissionState != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun fetchFirebaseMessagingToken() {
+        Firebase.messaging.token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.w(TAG, "Fetching FCM token failed", task.exception)
+                return@addOnCompleteListener
+            }
+
+            val token = task.result
+            fcmToken = token
+            Log.d(TAG, "FCM token: ${token.redactedForLog()}")
+            // TODO: Send this token to the Fenjoon backend/proxy over HTTPS when the API is ready.
+        }
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun FenjoonWebView(
     modifier: Modifier = Modifier,
-    url: String = FENJOON_URL
+    url: String = FENJOON_URL,
+    fcmToken: String? = null
 ) {
     val context = LocalContext.current
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
@@ -192,6 +242,10 @@ fun FenjoonWebView(
             isLoading = true
             webView.loadUrl(url)
         }
+    }
+
+    LaunchedEffect(fcmToken) {
+        webView.injectFcmToken(fcmToken)
     }
 
     BackHandler {
@@ -302,6 +356,7 @@ private class FenjoonWebViewClient(
 
     override fun onPageFinished(view: WebView, url: String) {
         onLoadingChanged(false)
+        view.injectFcmToken((view.getTag(R.id.web_view_fcm_token) as? String))
     }
 
     override fun onReceivedError(
@@ -319,6 +374,25 @@ private class FenjoonWebViewClient(
 private fun Intent?.toFenjoonUrl(): String {
     val url = this?.data ?: return FENJOON_START_URL
     return url.toFenjoonWebUrl() ?: FENJOON_START_URL
+}
+
+private fun String.redactedForLog(): String {
+    if (length <= 12) return "***"
+    return "${take(6)}...${takeLast(6)}"
+}
+
+private fun WebView.injectFcmToken(token: String?) {
+    if (token.isNullOrBlank()) return
+
+    setTag(R.id.web_view_fcm_token, token)
+    val quotedToken = JSONObject.quote(token)
+    evaluateJavascript(
+        """
+            window.expoPushToken = $quotedToken;
+            window.dispatchEvent(new CustomEvent('expoPushTokenReady', { detail: $quotedToken }));
+        """.trimIndent(),
+        null
+    )
 }
 
 private fun Context.isOnline(): Boolean {
