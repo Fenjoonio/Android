@@ -2,6 +2,7 @@ package io.fenjoon.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -61,11 +62,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import io.fenjoon.app.ui.theme.FenjoonTheme
 
 private const val FENJOON_URL = "https://app.fenjoon.io"
+private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
 private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
+private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 
 class MainActivity : ComponentActivity() {
-    private var currentUrl by mutableStateOf(FENJOON_URL)
+    private var currentUrl by mutableStateOf(FENJOON_START_URL)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,12 +117,16 @@ fun FenjoonWebView(
             isFocusable = true
             isFocusableInTouchMode = true
             overScrollMode = WebView.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
             scrollBarStyle = WebView.SCROLLBARS_INSIDE_OVERLAY
             webViewClient = FenjoonWebViewClient(
                 onLoadingChanged = { isLoading = it },
                 onError = { hasError = true }
             )
             settings.javaScriptEnabled = true
+            settings.textZoom = 100
+            settings.userAgentString = FENJOON_USER_AGENT
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
             settings.loadsImagesAutomatically = true
@@ -273,12 +280,19 @@ private class FenjoonWebViewClient(
 ) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url
-        return if (url.isFenjoonUrl()) {
-            onLoadingChanged(true)
-            false
-        } else {
-            view.context.startActivity(Intent(Intent.ACTION_VIEW, url))
-            true
+        return when {
+            url.isFenjoonUrl() -> {
+                onLoadingChanged(true)
+                url.scheme == FENJOON_SCHEME
+            }
+            url.isInternalWebViewUrl() -> false
+            else -> {
+                try {
+                    view.context.startActivity(Intent(Intent.ACTION_VIEW, url))
+                } catch (_: ActivityNotFoundException) {
+                }
+                true
+            }
         }
     }
 
@@ -303,8 +317,8 @@ private class FenjoonWebViewClient(
 }
 
 private fun Intent?.toFenjoonUrl(): String {
-    val url = this?.data ?: return FENJOON_URL
-    return if (url.isFenjoonUrl()) url.toString() else FENJOON_URL
+    val url = this?.data ?: return FENJOON_START_URL
+    return url.toFenjoonWebUrl() ?: FENJOON_START_URL
 }
 
 private fun Context.isOnline(): Boolean {
@@ -317,6 +331,39 @@ private fun Context.isOnline(): Boolean {
 
 private fun Uri.isFenjoonUrl(): Boolean {
     return scheme == "https" && host == FENJOON_HOST || scheme == FENJOON_SCHEME
+}
+
+private fun Uri.isInternalWebViewUrl(): Boolean {
+    return scheme == "about" || scheme == "data" || scheme == "file"
+}
+
+private fun Uri.toFenjoonWebUrl(): String? {
+    if (scheme == "https" && host == FENJOON_HOST) return toString()
+    if (scheme != FENJOON_SCHEME) return null
+
+    val deepLinkPath = path
+    val targetPath = buildString {
+        if (!host.isNullOrBlank()) {
+            append('/')
+            append(host)
+            if (!deepLinkPath.isNullOrBlank() && deepLinkPath != "/") append(deepLinkPath)
+        } else if (!deepLinkPath.isNullOrBlank() && deepLinkPath != "/") {
+            append(deepLinkPath)
+        }
+    }
+
+    return buildString {
+        append(FENJOON_URL)
+        append(targetPath)
+        if (!query.isNullOrBlank()) {
+            append('?')
+            append(query)
+        }
+        if (!fragment.isNullOrBlank()) {
+            append('#')
+            append(fragment)
+        }
+    }
 }
 
 @Preview(showBackground = true)
