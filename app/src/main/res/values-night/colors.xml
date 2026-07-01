@@ -7,4 +7,5 @@
     <color name="fenjoon_soft_foreground">#B3B3B3</color>
     <color name="fenjoon_border">#575757</color>
     <color name="fenjoon_icon_background">#2E2E2E</color>
+    <color name="fenjoon_icon_foreground">#F5ECE3</color>
 </resources>
