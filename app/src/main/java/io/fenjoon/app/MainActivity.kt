@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
@@ -15,6 +16,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -27,6 +29,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,13 +41,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,18 +60,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import io.fenjoon.app.ui.theme.AriaBlackFontFamily
 import io.fenjoon.app.ui.theme.FenjoonTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 private const val FENJOON_URL = "https://app.fenjoon.io"
 private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
@@ -69,6 +88,15 @@ private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
+
+private const val SPLASH_HEAD = "فـ" // ف + kashida, so it shows its connecting (initial) form
+private const val SPLASH_TAIL = "نجون"
+private const val SPLASH_HEAD_DELAY_MS = 500L
+private const val SPLASH_REVEAL_MS = 550
+
+// Keep the splash up long enough to show the centered "ف" and the reveal of "نجون"
+// before it can fade out (so it isn't cut off when the page loads instantly from cache).
+private const val SPLASH_MIN_DURATION_MS = SPLASH_HEAD_DELAY_MS + 800L
 
 /**
  * Polyfill for the Web Share API, which Android's WebView does not implement.
@@ -137,6 +165,7 @@ fun FenjoonWebView(
     var isLoading by remember { mutableStateOf(true) }
     var hasError by remember { mutableStateOf(false) }
     var isOnline by remember { mutableStateOf(context.isOnline()) }
+    var showSplash by remember { mutableStateOf(true) }
     val webView = remember {
         WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -236,6 +265,16 @@ fun FenjoonWebView(
         }
     }
 
+    // Hold the animated splash until the very first page load finishes (honoring a
+    // minimum on-screen time), then let it fade out.
+    LaunchedEffect(Unit) {
+        val splashStart = SystemClock.uptimeMillis()
+        snapshotFlow { isLoading }.first { !it }
+        val remaining = SPLASH_MIN_DURATION_MS - (SystemClock.uptimeMillis() - splashStart)
+        if (remaining > 0) delay(remaining)
+        showSplash = false
+    }
+
     BackHandler {
         if (webView.canGoBack()) {
             webView.goBack()
@@ -263,10 +302,6 @@ fun FenjoonWebView(
             }
         )
 
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-        }
-
         if (hasError) {
             ErrorState(
                 onRetry = {
@@ -277,7 +312,106 @@ fun FenjoonWebView(
                 modifier = Modifier.fillMaxSize()
             )
         }
+
+        AnimatedVisibility(
+            visible = showSplash,
+            enter = EnterTransition.None,
+            exit = fadeOut(animationSpec = tween(durationMillis = 400)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            FenjoonSplash()
+        }
     }
+}
+
+@Composable
+private fun FenjoonSplash(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val version = remember { context.appVersionName() }
+    var expanded by remember { mutableStateOf(false) }
+
+    // Show "ف" centered first, then slide it aside as "نجون" is revealed right-to-left.
+    LaunchedEffect(Unit) {
+        delay(SPLASH_HEAD_DELAY_MS)
+        expanded = true
+    }
+
+    val reveal by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(durationMillis = SPLASH_REVEAL_MS),
+        label = "splash-reveal"
+    )
+
+    val textStyle = remember {
+        TextStyle(fontFamily = AriaBlackFontFamily, fontSize = 64.sp)
+    }
+    val measurer = rememberTextMeasurer()
+    val tailWidth = remember(textStyle) { measurer.measure(SPLASH_TAIL, textStyle).size.width }
+    val tailWidthDp = with(LocalDensity.current) { tailWidth.toDp() }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        // The row is centered as a whole: while "نجون" has zero width the "ف" sits dead
+        // center; as the tail grows the row widens and pushes "ف" to the right (RTL),
+        // and the clip reveals "نجون" from its right edge leftward.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy((-8).dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = (-24).dp)
+        ) {
+            Text(
+                text = SPLASH_HEAD,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = textStyle
+            )
+            Box(
+                modifier = Modifier
+                    .width(tailWidthDp * reveal)
+                    .clipToBounds()
+            ) {
+                Text(
+                    text = SPLASH_TAIL,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = textStyle,
+                    softWrap = false,
+                    maxLines = 1,
+                    modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
+                )
+            }
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.splash_tagline),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (!version.isNullOrEmpty()) {
+                Text(
+                    text = version,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+private fun Context.appVersionName(): String? = try {
+    packageManager.getPackageInfo(packageName, 0).versionName
+} catch (_: PackageManager.NameNotFoundException) {
+    null
 }
 
 @Composable

@@ -13,6 +13,10 @@ val AriaFontFamily = FontFamily(
     Font(R.font.aria_bold, FontWeight.Bold)
 )
 
+val AriaBlackFontFamily = FontFamily(
+    Font(R.font.aria_black)
+)
+
 val Typography = Typography(
     titleMedium = TextStyle(
         fontFamily = AriaFontFamily,

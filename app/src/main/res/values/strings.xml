@@ -3,4 +3,5 @@
     <string name="error_title">Connection failed!</string>
     <string name="error_message">Please check your internet connection and try again.</string>
     <string name="error_retry">Try again</string>
+    <string name="splash_tagline">Stories as short as a cup of coffee</string>
 </resources>
