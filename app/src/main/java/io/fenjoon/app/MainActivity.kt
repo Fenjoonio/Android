@@ -59,6 +59,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import io.fenjoon.app.ui.theme.FenjoonTheme
 
 private const val FENJOON_URL = "https://app.fenjoon.io"
@@ -66,6 +68,35 @@ private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
 private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
+private const val SHARE_BRIDGE_NAME = "AndroidShare"
+
+/**
+ * Polyfill for the Web Share API, which Android's WebView does not implement.
+ * Forwards `navigator.share()` calls to the native [WebAppInterface] bridge so
+ * the web app's existing share code works unchanged inside the WebView.
+ */
+private const val WEB_SHARE_POLYFILL = """
+(function() {
+  if (!window.$SHARE_BRIDGE_NAME || navigator.__fenjoonShare) return;
+  navigator.__fenjoonShare = true;
+  navigator.share = function(data) {
+    data = data || {};
+    try {
+      window.$SHARE_BRIDGE_NAME.share(
+        data.title != null ? String(data.title) : '',
+        data.text != null ? String(data.text) : '',
+        data.url != null ? String(data.url) : ''
+      );
+      return Promise.resolve();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+  navigator.canShare = function(data) {
+    return !(data && data.files && data.files.length);
+  };
+})();
+"""
 
 class MainActivity : ComponentActivity() {
     private var currentUrl by mutableStateOf(FENJOON_START_URL)
@@ -143,6 +174,17 @@ fun FenjoonWebView(
             CookieManager.getInstance().setAcceptCookie(true)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+            }
+            addJavascriptInterface(WebAppInterface(context), SHARE_BRIDGE_NAME)
+            // Inject the polyfill before any page script runs so `navigator.share`
+            // exists by the time the web app feature-detects it. onPageStarted
+            // below is the fallback for WebViews without DOCUMENT_START_SCRIPT.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(
+                    this,
+                    WEB_SHARE_POLYFILL,
+                    setOf("https://$FENJOON_HOST")
+                )
             }
         }
     }
@@ -298,6 +340,10 @@ private class FenjoonWebViewClient(
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         onLoadingChanged(true)
+        // Fallback for WebViews that don't support DOCUMENT_START_SCRIPT. The
+        // polyfill is idempotent, so it's a no-op when the document-start
+        // injection already ran.
+        view.evaluateJavascript(WEB_SHARE_POLYFILL, null)
     }
 
     override fun onPageFinished(view: WebView, url: String) {
