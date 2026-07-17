@@ -1,5 +1,6 @@
 package io.fenjoon.app
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -17,9 +18,12 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.MediaStore
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -27,8 +31,10 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.animateFloatAsState
@@ -75,10 +81,13 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.fenjoon.app.ui.theme.AriaBlackFontFamily
 import io.fenjoon.app.ui.theme.FenjoonTheme
+import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
@@ -166,6 +175,89 @@ fun FenjoonWebView(
     var hasError by remember { mutableStateOf(false) }
     var isOnline by remember { mutableStateOf(context.isOnline()) }
     var showSplash by remember { mutableStateOf(true) }
+
+    // Bridges the WebView's file <input> to the system picker. onShowFileChooser hands us a
+    // callback; we stash it, launch a chooser (document picker + camera when the input accepts
+    // images), and deliver the chosen URIs back from the result callback below. Delivering a
+    // value (even null) is required — otherwise the <input> stays wedged and won't reopen.
+    var pendingFileChooserCallback by remember {
+        mutableStateOf<ValueCallback<Array<Uri>>?>(null)
+    }
+    // Non-null while a camera capture is pending: the photo lands here via EXTRA_OUTPUT, and
+    // the camera app returns RESULT_OK with no data, so we read the result back from this URI.
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    // Held while the CAMERA permission prompt is up, so the chooser can open once it resolves.
+    var pendingChooserParams by remember {
+        mutableStateOf<WebChromeClient.FileChooserParams?>(null)
+    }
+
+    val fileChooserLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val callback = pendingFileChooserCallback
+        val cameraUri = pendingCameraUri
+        pendingFileChooserCallback = null
+        pendingCameraUri = null
+        if (callback != null) {
+            val parsed = WebChromeClient.FileChooserParams
+                .parseResult(result.resultCode, result.data)
+            val uris = when {
+                parsed?.isNotEmpty() == true -> parsed
+                // A camera capture returns OK with no data — the photo is at cameraUri.
+                result.resultCode == Activity.RESULT_OK && cameraUri != null ->
+                    arrayOf(cameraUri)
+                else -> null
+            }
+            callback.onReceiveValue(uris)
+        }
+    }
+
+    fun launchFileChooser(params: WebChromeClient.FileChooserParams, includeCamera: Boolean) {
+        val extraIntents = mutableListOf<Intent>()
+
+        val cameraUri = if (includeCamera) context.createCameraCaptureUri() else null
+        val cameraIntent = cameraUri?.let { uri ->
+            Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                .putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                .takeIf { it.resolveActivity(context.packageManager) != null }
+        }
+        pendingCameraUri = if (cameraIntent != null) cameraUri else null
+        if (cameraIntent != null) extraIntents += cameraIntent
+
+        // Offer the gallery/photos app directly — the base ACTION_GET_CONTENT picker opens the
+        // Files-style Documents UI, which many users don't recognize as "the gallery".
+        if (params.acceptsImages()) {
+            context.galleryPickIntent(params.allowsMultiple())?.let { extraIntents += it }
+        }
+
+        val chooser = Intent.createChooser(
+            params.createIntent(),
+            context.getString(R.string.file_chooser_title)
+        )
+        if (extraIntents.isNotEmpty()) {
+            chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
+        }
+        try {
+            fileChooserLauncher.launch(chooser)
+        } catch (_: ActivityNotFoundException) {
+            pendingFileChooserCallback?.onReceiveValue(null)
+            pendingFileChooserCallback = null
+            pendingCameraUri = null
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val params = pendingChooserParams
+        pendingChooserParams = null
+        if (params != null) {
+            // A denial is fine — fall back to the document picker without the camera option.
+            launchFileChooser(params, includeCamera = granted)
+        }
+    }
+
     val webView = remember {
         WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -184,6 +276,25 @@ fun FenjoonWebView(
                 onLoadingChanged = { isLoading = it },
                 onError = { hasError = true }
             )
+            webChromeClient = FenjoonWebChromeClient { callback, params ->
+                // Release any previous, still-pending callback so a stale picker
+                // can't wedge the <input> permanently.
+                pendingFileChooserCallback?.onReceiveValue(null)
+                pendingFileChooserCallback = callback
+
+                val imagesAccepted = params.acceptsImages()
+                val hasCameraPermission = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+                if (imagesAccepted && !hasCameraPermission) {
+                    // Ask for camera access first; the chooser opens from the result.
+                    pendingChooserParams = params
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                } else {
+                    launchFileChooser(params, includeCamera = imagesAccepted)
+                }
+                true
+            }
             settings.javaScriptEnabled = true
             settings.textZoom = 100
             settings.userAgentString = FENJOON_USER_AGENT
@@ -496,9 +607,72 @@ private class FenjoonWebViewClient(
     }
 }
 
+/**
+ * Handles `<input type="file">` taps. Android's WebView has no default file picker,
+ * so without this the upload field silently does nothing. Delegates the actual
+ * picker launch (and result plumbing) back to the composable via [onShowFileChooser].
+ */
+private class FenjoonWebChromeClient(
+    private val onShowFileChooser: (
+        callback: ValueCallback<Array<Uri>>,
+        params: FileChooserParams
+    ) -> Boolean
+) : WebChromeClient() {
+    override fun onShowFileChooser(
+        webView: WebView,
+        filePathCallback: ValueCallback<Array<Uri>>,
+        fileChooserParams: FileChooserParams
+    ): Boolean = onShowFileChooser(filePathCallback, fileChooserParams)
+}
+
 private fun Intent?.toFenjoonUrl(): String {
     val url = this?.data ?: return FENJOON_START_URL
     return url.toFenjoonWebUrl() ?: FENJOON_START_URL
+}
+
+/**
+ * Creates a FileProvider URI the camera app can write a captured photo into. Old captures
+ * are cleared first so temp files don't accumulate in the cache.
+ */
+private fun Context.createCameraCaptureUri(): Uri? = try {
+    val dir = File(cacheDir, "camera").apply { mkdirs() }
+    dir.listFiles()?.forEach { it.delete() }
+    val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+    FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+} catch (_: Exception) {
+    null
+}
+
+/**
+ * Whether the file <input>'s `accept` types include images, in which case offering the camera
+ * and gallery makes sense. An empty/absent filter accepts anything, so both are offered too.
+ */
+private fun WebChromeClient.FileChooserParams.acceptsImages(): Boolean {
+    val types = acceptTypes?.filter { it.isNotBlank() }
+    if (types.isNullOrEmpty()) return true
+    return types.any { type ->
+        val value = type.trim().lowercase()
+        value == "*/*" || value.startsWith("image/") ||
+            value.endsWith(".jpg") || value.endsWith(".jpeg") ||
+            value.endsWith(".png") || value.endsWith(".webp") ||
+            value.endsWith(".gif") || value.endsWith(".heic") || value.endsWith(".heif")
+    }
+}
+
+/** Whether the <input> allows selecting more than one file (the `multiple` attribute). */
+private fun WebChromeClient.FileChooserParams.allowsMultiple(): Boolean =
+    mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE
+
+/**
+ * Intent that opens the device gallery/photos app to pick existing image(s), or null if no
+ * gallery app is available. Needs no runtime permission — ACTION_PICK only returns what the
+ * user explicitly selects.
+ */
+private fun Context.galleryPickIntent(allowMultiple: Boolean): Intent? {
+    val intent = Intent(Intent.ACTION_PICK)
+        .setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image/*")
+    if (allowMultiple) intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+    return intent.takeIf { it.resolveActivity(packageManager) != null }
 }
 
 private fun Context.isOnline(): Boolean {

@@ -4,4 +4,5 @@
     <string name="error_message">لطفاً اتصال اینترنت خود را بررسی و دوباره تلاش کنید.</string>
     <string name="error_retry">تلاش دوباره</string>
     <string name="splash_tagline">داستان‌هایی به کوتاهی یک فنجون قهوه</string>
+    <string name="file_chooser_title">انتخاب فایل</string>
 </resources>
