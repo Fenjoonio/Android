@@ -124,24 +124,96 @@ private const val SPLASH_MIN_DURATION_MS = SPLASH_HEAD_DELAY_MS + 800L
  */
 private const val WEB_SHARE_POLYFILL = """
 (function() {
-  if (!window.$SHARE_BRIDGE_NAME || navigator.__fenjoonShare) return;
-  navigator.__fenjoonShare = true;
+  var bridge = window.$SHARE_BRIDGE_NAME;
+  if (!bridge || navigator.__fenjoonShareVersion === 2) return;
+
+  var maxFileBytes = $MAX_SHARE_FILE_BYTES;
+  var pending = null;
+  var nextId = 1;
+
+  function domError(name, message) {
+    try { return new DOMException(message || name, name); }
+    catch (_) { var error = new Error(message || name); error.name = name; return error; }
+  }
+
+  bridge.onmessage = function(event) {
+    var response;
+    try { response = JSON.parse(event.data); } catch (_) { return; }
+    if (!pending || response.id !== pending.id) return;
+
+    var current = pending;
+    pending = null;
+    if (response.ok) current.resolve();
+    else current.reject(domError(response.error || 'AbortError', response.message));
+  };
+
+  navigator.canShare = function(data) {
+    if (!data || typeof data !== 'object') return false;
+    var hasText = data.title != null || data.text != null || data.url != null;
+    var files = data.files;
+    if (files == null || files.length === 0) return hasText;
+    if (files.length !== 1) return false;
+
+    var file = files[0];
+    return file instanceof File &&
+      file.type === 'image/png' &&
+      file.size > 0 &&
+      file.size <= maxFileBytes;
+  };
+
   navigator.share = function(data) {
     data = data || {};
-    try {
-      window.$SHARE_BRIDGE_NAME.share(
-        data.title != null ? String(data.title) : '',
-        data.text != null ? String(data.text) : '',
-        data.url != null ? String(data.url) : ''
-      );
-      return Promise.resolve();
-    } catch (e) {
-      return Promise.reject(e);
+    if (!navigator.canShare(data)) {
+      return Promise.reject(domError('NotSupportedError', 'This share data is not supported'));
     }
+    if (pending) {
+      return Promise.reject(domError('InvalidStateError', 'A share is already in progress'));
+    }
+
+    return new Promise(function(resolve, reject) {
+      var id = String(nextId++);
+      pending = { id: id, resolve: resolve, reject: reject };
+
+      function send(fileData) {
+        try {
+          bridge.postMessage(JSON.stringify({
+            version: 1,
+            id: id,
+            title: data.title != null ? String(data.title) : '',
+            text: data.text != null ? String(data.text) : '',
+            url: data.url != null ? String(data.url) : '',
+            file: fileData || null
+          }));
+        } catch (error) {
+          pending = null;
+          reject(error);
+        }
+      }
+
+      if (!data.files || data.files.length === 0) {
+        send(null);
+        return;
+      }
+
+      var file = data.files[0];
+      var reader = new FileReader();
+      reader.onerror = function() {
+        pending = null;
+        reject(domError('DataError', 'Unable to read the shared image'));
+      };
+      reader.onload = function() {
+        send({
+          name: file.name || 'fenjoon-story.png',
+          type: file.type,
+          size: file.size,
+          dataUrl: String(reader.result || '')
+        });
+      };
+      reader.readAsDataURL(file);
+    });
   };
-  navigator.canShare = function(data) {
-    return !(data && data.files && data.files.length);
-  };
+
+  navigator.__fenjoonShareVersion = 2;
 })();
 """
 
@@ -410,7 +482,25 @@ fun FenjoonWebView(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
             }
-            addJavascriptInterface(WebAppInterface(context), SHARE_BRIDGE_NAME)
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                val shareHandler = WebAppInterface(context as Activity)
+                WebViewCompat.addWebMessageListener(
+                    this,
+                    SHARE_BRIDGE_NAME,
+                    setOf(FENJOON_URL)
+                ) { _, message, sourceOrigin, isMainFrame, replyProxy ->
+                    if (
+                        isMainFrame &&
+                        sourceOrigin.scheme == "https" &&
+                        sourceOrigin.host == FENJOON_HOST &&
+                        sourceOrigin.port == -1
+                    ) {
+                        shareHandler.share(message.data ?: "") { response ->
+                            replyProxy.postMessage(response)
+                        }
+                    }
+                }
+            }
             addJavascriptInterface(
                 NotificationBridge(context) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -690,13 +780,18 @@ private class FenjoonWebViewClient(
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         onLoadingChanged(true)
+        val pageUri = Uri.parse(url)
+        val isFenjoonPage = pageUri.scheme == "https" &&
+            pageUri.host == FENJOON_HOST && pageUri.port == -1
         // Fallback for WebViews that don't support DOCUMENT_START_SCRIPT. The
         // polyfill is idempotent, so it's a no-op when the document-start
         // injection already ran.
-        view.evaluateJavascript(WEB_SHARE_POLYFILL, null)
+        if (isFenjoonPage) {
+            view.evaluateJavascript(WEB_SHARE_POLYFILL, null)
+        }
         // Hand the current FCM token to the web layer so it can register token↔user with the
         // backend using the logged-in session.
-        if (Uri.parse(url).host == FENJOON_HOST) {
+        if (isFenjoonPage) {
             TokenStore(view.context).get()?.takeIf { it.isNotEmpty() }?.let { token ->
                 view.evaluateJavascript(fcmTokenInjectionScript(token), null)
             }

@@ -4,4 +4,8 @@
     <cache-path
         name="camera_photos"
         path="camera/" />
+    <!-- Generated story cards shared through Android's chooser live in cacheDir/share. -->
+    <cache-path
+        name="shared_images"
+        path="share/" />
 </paths>
