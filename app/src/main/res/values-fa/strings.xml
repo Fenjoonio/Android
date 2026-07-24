@@ -5,4 +5,45 @@
     <string name="error_retry">تلاش دوباره</string>
     <string name="splash_tagline">داستان‌هایی به کوتاهی یک فنجون قهوه</string>
     <string name="file_chooser_title">انتخاب فایل</string>
+
+    <!-- Notification channels (shown in system settings) -->
+    <string name="channel_chat_name">گفتگوها</string>
+    <string name="channel_chat_description">پیام‌های مستقیم جدید</string>
+    <string name="channel_urgent_name">مهم</string>
+    <string name="channel_urgent_description">هشدارهای فوری</string>
+    <string name="channel_social_name">اجتماعی</string>
+    <string name="channel_social_description">لایک‌ها، دنبال‌کردن‌ها و دیدگاه‌ها</string>
+    <string name="channel_reminders_name">یادآوری‌ها</string>
+    <string name="channel_reminders_description">یادآوری‌های گاه‌به‌گاه برای دیدن مطالب تازه</string>
+    <string name="channel_default_name">عمومی</string>
+    <string name="channel_default_description">سایر اعلان‌ها</string>
+
+    <!-- Chat direct-reply action -->
+    <string name="notification_self">شما</string>
+    <string name="notification_reply_label">پاسخ</string>
+    <string name="notification_reply_placeholder">پیام</string>
+    <string name="notification_reply_failed">ارسال نشد. برای باز کردن گفتگو ضربه بزنید.</string>
+    <string name="notification_mark_read_label">علامت‌گذاری به‌عنوان خوانده‌شده</string>
+
+    <!-- Grouped chat summary and privacy-safe public lock-screen content -->
+    <string name="notification_chat_group_summary_title">فنجون</string>
+    <plurals name="notification_chat_group_conversation_count">
+        <item quantity="one">%1$d گفتگو</item>
+        <item quantity="other">%1$d گفتگو</item>
+    </plurals>
+    <plurals name="notification_chat_group_message_count">
+        <item quantity="one">%1$d پیام جدید</item>
+        <item quantity="other">%1$d پیام جدید</item>
+    </plurals>
+    <string name="notification_public_chat_title">پیام جدید</string>
+    <string name="notification_public_chat_body">برای مشاهده، قفل دستگاه را باز کنید.</string>
+    <string name="notification_public_social_title">فعالیت جدید</string>
+    <string name="notification_public_urgent_title">هشدار جدید</string>
+    <string name="notification_public_reminder_title">یادآوری</string>
+    <string name="notification_public_general_title">اعلان جدید</string>
+    <string name="notification_public_generic_body">برای مشاهده، قفل دستگاه را باز کنید.</string>
+
+    <!-- Scheduled inactivity reminder -->
+    <string name="reminder_title">فنجون</string>
+    <string name="reminder_body">داستان‌های تازه‌ای منتظر شما هستند.</string>
 </resources>

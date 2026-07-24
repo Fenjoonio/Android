@@ -85,11 +85,19 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import io.fenjoon.app.notifications.ChatNotificationOpenIntent
+import io.fenjoon.app.notifications.NotificationActionExtras
+import io.fenjoon.app.notifications.NotificationActionHttpClient
+import io.fenjoon.app.notifications.NotificationPresentationState
+import io.fenjoon.app.notifications.Notifier
+import io.fenjoon.app.notifications.ReminderScheduler
+import io.fenjoon.app.notifications.TokenStore
 import io.fenjoon.app.ui.theme.AriaBlackFontFamily
 import io.fenjoon.app.ui.theme.FenjoonTheme
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import org.json.JSONObject
 
 private const val FENJOON_URL = "https://app.fenjoon.io"
 private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
@@ -97,6 +105,8 @@ private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
+private const val NOTIFICATIONS_BRIDGE_NAME = "AndroidNotifications"
+private const val STATE_NOTIFICATION_OPEN_KEY = "state_notification_open_key"
 
 private const val SPLASH_HEAD = "فـ" // ف + kashida, so it shows its connecting (initial) form
 private const val SPLASH_TAIL = "نجون"
@@ -135,12 +145,29 @@ private const val WEB_SHARE_POLYFILL = """
 })();
 """
 
+/**
+ * JS that hands the FCM token to the web app: sets `window.__fenjoonFcmToken` and calls
+ * `window.onFcmToken(token)` if the page defined it. The web app maps the token to the
+ * logged-in user, since the device itself has no native identity.
+ */
+private fun fcmTokenInjectionScript(token: String): String {
+    val quoted = JSONObject.quote(token)
+    return "window.__fenjoonFcmToken=$quoted;" +
+        "if(typeof window.onFcmToken==='function'){try{window.onFcmToken($quoted);}catch(e){}}"
+}
+
 class MainActivity : ComponentActivity() {
     private var currentUrl by mutableStateOf(FENJOON_START_URL)
+    private var lastHandledNotificationOpen: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        lastHandledNotificationOpen = savedInstanceState?.getString(STATE_NOTIFICATION_OPEN_KEY)
+        if (savedInstanceState == null) {
+            NotificationPresentationState.reset()
+        }
         currentUrl = intent.toFenjoonUrl()
+        handleChatNotificationOpen(intent)
         enableEdgeToEdge()
         setContent {
             FenjoonTheme {
@@ -160,6 +187,57 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         currentUrl = intent.toFenjoonUrl()
+        handleChatNotificationOpen(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        lastHandledNotificationOpen?.let { outState.putString(STATE_NOTIFICATION_OPEN_KEY, it) }
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun handleChatNotificationOpen(sourceIntent: Intent) {
+        if (sourceIntent.action != ChatNotificationOpenIntent.ACTION_OPEN_CHAT) return
+        val conversationId = sourceIntent.getStringExtra(NotificationActionExtras.CONVERSATION_ID)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: return
+        val messageId = sourceIntent.getStringExtra(NotificationActionExtras.MESSAGE_ID)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+        val openToken = ChatNotificationOpenIntent.openToken(sourceIntent) ?: return
+        if (openToken == lastHandledNotificationOpen) return
+        val readUrl = sourceIntent.getStringExtra(NotificationActionExtras.READ_URL)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+        lastHandledNotificationOpen = openToken
+        sourceIntent.action = Intent.ACTION_VIEW
+        sourceIntent.data = Uri.parse(currentUrl)
+        sourceIntent.removeExtra(NotificationActionExtras.READ_URL)
+
+        // Navigation is already represented by currentUrl. Clear the consumed card immediately;
+        // the receipt is deliberately best-effort and cannot delay activity startup.
+        Notifier.cancelConversation(applicationContext, conversationId)
+        if (messageId != null && readUrl != null) {
+            Thread {
+                try {
+                    NotificationActionHttpClient().postRead(readUrl, conversationId, messageId)
+                } catch (_: Exception) {
+                    // The conversation is already open; a read-receipt failure must remain silent.
+                }
+            }.start()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        NotificationPresentationState.setActivityForeground(true)
+        // Re-arm the inactivity reminder on every open, so it only fires after N days of no use.
+        ReminderScheduler.rearm(this)
+    }
+
+    override fun onPause() {
+        NotificationPresentationState.setActivityForeground(false)
+        super.onPause()
     }
 }
 
@@ -258,6 +336,23 @@ fun FenjoonWebView(
         }
     }
 
+    // POST_NOTIFICATIONS needs a runtime grant on Android 13+. The AndroidNotifications bridge
+    // can trigger this from the web app at a good moment; the LaunchedEffect below is a fallback
+    // so notifications still work if the web app never asks.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted — web can re-check via AndroidNotifications.notificationsEnabled() */ }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     val webView = remember {
         WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -316,6 +411,16 @@ fun FenjoonWebView(
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
             }
             addJavascriptInterface(WebAppInterface(context), SHARE_BRIDGE_NAME)
+            addJavascriptInterface(
+                NotificationBridge(context) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        notificationPermissionLauncher.launch(
+                            Manifest.permission.POST_NOTIFICATIONS
+                        )
+                    }
+                },
+                NOTIFICATIONS_BRIDGE_NAME
+            )
             // Inject the polyfill before any page script runs so `navigator.share`
             // exists by the time the web app feature-detects it. onPageStarted
             // below is the fallback for WebViews without DOCUMENT_START_SCRIPT.
@@ -589,6 +694,13 @@ private class FenjoonWebViewClient(
         // polyfill is idempotent, so it's a no-op when the document-start
         // injection already ran.
         view.evaluateJavascript(WEB_SHARE_POLYFILL, null)
+        // Hand the current FCM token to the web layer so it can register token↔user with the
+        // backend using the logged-in session.
+        if (Uri.parse(url).host == FENJOON_HOST) {
+            TokenStore(view.context).get()?.takeIf { it.isNotEmpty() }?.let { token ->
+                view.evaluateJavascript(fcmTokenInjectionScript(token), null)
+            }
+        }
     }
 
     override fun onPageFinished(view: WebView, url: String) {
@@ -626,7 +738,14 @@ private class FenjoonWebChromeClient(
 }
 
 private fun Intent?.toFenjoonUrl(): String {
-    val url = this?.data ?: return FENJOON_START_URL
+    val source = this ?: return FENJOON_START_URL
+    if (source.action == ChatNotificationOpenIntent.ACTION_OPEN_CHAT) {
+        val validated = ChatNotificationOpenIntent.safeWebLink(
+            source.getStringExtra(NotificationActionExtras.LINK),
+        )
+        return validated ?: FENJOON_START_URL
+    }
+    val url = source.data ?: return FENJOON_START_URL
     return url.toFenjoonWebUrl() ?: FENJOON_START_URL
 }
 

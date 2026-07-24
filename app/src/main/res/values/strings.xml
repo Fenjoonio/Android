@@ -5,4 +5,45 @@
     <string name="error_retry">Try again</string>
     <string name="splash_tagline">Stories as short as a cup of coffee</string>
     <string name="file_chooser_title">Select a file</string>
+
+    <!-- Notification channels (shown in system settings) -->
+    <string name="channel_chat_name">Chats</string>
+    <string name="channel_chat_description">New direct messages</string>
+    <string name="channel_urgent_name">Important</string>
+    <string name="channel_urgent_description">Time-sensitive alerts</string>
+    <string name="channel_social_name">Social</string>
+    <string name="channel_social_description">Likes, follows and comments</string>
+    <string name="channel_reminders_name">Reminders</string>
+    <string name="channel_reminders_description">Occasional nudges to check what\'s new</string>
+    <string name="channel_default_name">General</string>
+    <string name="channel_default_description">Other notifications</string>
+
+    <!-- Chat direct-reply action -->
+    <string name="notification_self">You</string>
+    <string name="notification_reply_label">Reply</string>
+    <string name="notification_reply_placeholder">Message</string>
+    <string name="notification_reply_failed">Couldn\'t send. Tap to open the chat.</string>
+    <string name="notification_mark_read_label">Mark as read</string>
+
+    <!-- Grouped chat summary and privacy-safe public lock-screen content -->
+    <string name="notification_chat_group_summary_title">Fenjoon</string>
+    <plurals name="notification_chat_group_conversation_count">
+        <item quantity="one">%1$d conversation</item>
+        <item quantity="other">%1$d conversations</item>
+    </plurals>
+    <plurals name="notification_chat_group_message_count">
+        <item quantity="one">%1$d new message</item>
+        <item quantity="other">%1$d new messages</item>
+    </plurals>
+    <string name="notification_public_chat_title">New message</string>
+    <string name="notification_public_chat_body">Unlock to view it.</string>
+    <string name="notification_public_social_title">New activity</string>
+    <string name="notification_public_urgent_title">New alert</string>
+    <string name="notification_public_reminder_title">Reminder</string>
+    <string name="notification_public_general_title">New notification</string>
+    <string name="notification_public_generic_body">Unlock to view it.</string>
+
+    <!-- Scheduled inactivity reminder -->
+    <string name="reminder_title">Fenjoon</string>
+    <string name="reminder_body">There are new stories waiting for you.</string>
 </resources>

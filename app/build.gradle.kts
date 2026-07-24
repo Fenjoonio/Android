@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -19,6 +20,16 @@ android {
         versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Origin of the Go API that serves the chat notification action endpoints
+        // (/v1/conversations/<id>/{read,messages}). The WebView always loads the
+        // production frontend at app.fenjoon.io, so the registered FCM tokens and
+        // the payloads they receive come from the production backend — hence the
+        // default. Override locally with -PfenjoonApiOrigin=... (e.g. for an
+        // emulator pointing at a local backend: http://10.0.2.2:8080).
+        val notificationApiOrigin = (project.findProperty("fenjoonApiOrigin") as String?)
+            ?.takeIf(String::isNotBlank) ?: "https://api.fenjoon.io"
+        buildConfigField("String", "NOTIFICATION_API_ORIGIN", "\"$notificationApiOrigin\"")
     }
 
     buildTypes {
@@ -36,6 +47,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -50,6 +62,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.material)
     implementation(libs.androidx.webkit)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+    implementation(libs.androidx.work.runtime)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

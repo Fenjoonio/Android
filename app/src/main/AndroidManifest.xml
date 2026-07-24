@@ -2,9 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-feature
         android:name="android.hardware.camera.any"
@@ -22,6 +23,7 @@
     </queries>
 
     <application
+        android:name=".FenjoonApp"
         android:allowBackup="true"
         android:hardwareAccelerated="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -72,6 +74,38 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Receives FCM data messages (foreground and background) so we build every
+             notification ourselves — see FenjoonMessagingService. -->
+        <service
+            android:name=".notifications.FenjoonMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Handles chat notification actions. All are explicit app-internal broadcasts. -->
+        <receiver
+            android:name=".notifications.DirectReplyReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notifications.MarkConversationReadReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notifications.NotificationDismissReceiver"
+            android:exported="false" />
+
+        <!-- Fallbacks used by FCM if a message ever arrives without our custom handling. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/adaptive_icon" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/fenjoon_icon_foreground" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="general_alerts_v2" />
     </application>
 
 </manifest>
