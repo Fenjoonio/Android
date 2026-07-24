@@ -79,6 +79,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.fenjoon.app.notifications.ChatNotificationOpenIntent
@@ -515,6 +518,71 @@ fun FenjoonWebView(
                     setOf("https://$FENJOON_HOST")
                 )
             }
+        }
+    }
+
+    DisposableEffect(context, webView) {
+        val activity = context as Activity
+        val insetView = activity.window.decorView
+        val density = context.resources.displayMetrics.density
+        var animationDuration = 0L
+        var lastKeyboardHeight = -1
+
+        fun dispatchKeyboardHeight(insets: WindowInsetsCompat) {
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val navigationBarBottom = insets
+                .getInsets(WindowInsetsCompat.Type.navigationBars())
+                .bottom
+            val keyboardHeight = if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                ((imeBottom - navigationBarBottom).coerceAtLeast(0) / density).toInt()
+            } else {
+                0
+            }
+            if (keyboardHeight == lastKeyboardHeight) return
+            lastKeyboardHeight = keyboardHeight
+
+            webView.post {
+                webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('keyboardHeightChange'," +
+                        "{detail:{height:$keyboardHeight,duration:$animationDuration}}));true;",
+                    null
+                )
+            }
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(insetView) { _, insets ->
+            dispatchKeyboardHeight(insets)
+            insets
+        }
+        ViewCompat.setWindowInsetsAnimationCallback(
+            insetView,
+            object : WindowInsetsAnimationCompat.Callback(
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
+            ) {
+                override fun onStart(
+                    animation: WindowInsetsAnimationCompat,
+                    bounds: WindowInsetsAnimationCompat.BoundsCompat
+                ): WindowInsetsAnimationCompat.BoundsCompat {
+                    if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) {
+                        animationDuration = animation.durationMillis
+                    }
+                    return bounds
+                }
+
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                ): WindowInsetsCompat {
+                    dispatchKeyboardHeight(insets)
+                    return insets
+                }
+            }
+        )
+        ViewCompat.requestApplyInsets(insetView)
+
+        onDispose {
+            ViewCompat.setOnApplyWindowInsetsListener(insetView, null)
+            ViewCompat.setWindowInsetsAnimationCallback(insetView, null)
         }
     }
 
