@@ -227,6 +227,9 @@ private fun fcmTokenInjectionScript(token: String): String {
         "if(typeof window.onFcmToken==='function'){try{window.onFcmToken($quoted);}catch(e){}}"
 }
 
+private val APP_VERSION_INJECTION_SCRIPT =
+    "localStorage.setItem('fenjoonAppVersion',${JSONObject.quote(BuildConfig.VERSION_NAME)});"
+
 class MainActivity : ComponentActivity() {
     private var currentUrl by mutableStateOf(FENJOON_START_URL)
     private var lastHandledNotificationOpen: String? = null
@@ -508,14 +511,19 @@ fun FenjoonWebView(
                 },
                 NOTIFICATIONS_BRIDGE_NAME
             )
-            // Inject the polyfill before any page script runs so `navigator.share`
-            // exists by the time the web app feature-detects it. onPageStarted
+            // Inject native capabilities before any page script runs. onPageStarted
             // below is the fallback for WebViews without DOCUMENT_START_SCRIPT.
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                val allowedOrigins = setOf("https://$FENJOON_HOST")
                 WebViewCompat.addDocumentStartJavaScript(
                     this,
                     WEB_SHARE_POLYFILL,
-                    setOf("https://$FENJOON_HOST")
+                    allowedOrigins
+                )
+                WebViewCompat.addDocumentStartJavaScript(
+                    this,
+                    APP_VERSION_INJECTION_SCRIPT,
+                    allowedOrigins
                 )
             }
         }
@@ -850,6 +858,7 @@ private class FenjoonWebViewClient(
         // injection already ran.
         if (isFenjoonPage) {
             view.evaluateJavascript(WEB_SHARE_POLYFILL, null)
+            view.evaluateJavascript(APP_VERSION_INJECTION_SCRIPT, null)
         }
         // Hand the current FCM token to the web layer so it can register token↔user with the
         // backend using the logged-in session.
