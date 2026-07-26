@@ -6,6 +6,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
@@ -85,6 +86,7 @@ import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.google.android.gms.auth.api.phone.SmsRetriever
 import io.fenjoon.app.notifications.ChatNotificationOpenIntent
 import io.fenjoon.app.notifications.NotificationActionExtras
 import io.fenjoon.app.notifications.NotificationActionHttpClient
@@ -105,6 +107,11 @@ private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
+private const val ANDROID_BRIDGE_NAME = "Android"
+private const val START_OTP_LISTENING_MESSAGE = "startOtpListening"
+private const val OTP_VERIFICATION_PAGE_READY_MESSAGE = "otpVerificationPageReady"
+private const val OTP_VERIFICATION_PAGE_CLOSED_MESSAGE = "otpVerificationPageClosed"
+private const val OTP_RECEIVED_EVENT = "fenjoonOtpReceived"
 private const val NOTIFICATIONS_BRIDGE_NAME = "AndroidNotifications"
 private const val THEME_BRIDGE_NAME = "AndroidTheme"
 private const val STATE_NOTIFICATION_OPEN_KEY = "state_notification_open_key"
@@ -229,6 +236,21 @@ private fun fcmTokenInjectionScript(token: String): String {
     val quoted = JSONObject.quote(token)
     return "window.__fenjoonFcmToken=$quoted;" +
         "if(typeof window.onFcmToken==='function'){try{window.onFcmToken($quoted);}catch(e){}}"
+}
+
+private fun otpInjectionScript(code: String): String {
+    val quoted = JSONObject.quote(code)
+    return "window.dispatchEvent(new CustomEvent('$OTP_RECEIVED_EVENT'," +
+        "{detail:{code:$quoted}}));true;"
+}
+
+private fun androidMessageType(rawMessage: String?): String? {
+    if (rawMessage == null) return null
+    return try {
+        JSONObject(rawMessage).optString("type").takeIf(String::isNotEmpty)
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private val APP_VERSION_INJECTION_SCRIPT =
@@ -421,6 +443,35 @@ private fun FenjoonWebView(
     var pendingNativeTargetUrl by remember { mutableStateOf<String?>(null) }
     var pendingNativeTargetStarted by remember { mutableStateOf(false) }
     var pendingNativePageUrl by remember { mutableStateOf<String?>(null) }
+    var otpPageReady by remember { mutableStateOf(false) }
+    var pendingOtpCode by remember { mutableStateOf<String?>(null) }
+
+    val otpConsentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val message = result.data?.getStringExtra(SmsRetriever.EXTRA_SMS_MESSAGE) ?: return@rememberLauncherForActivityResult
+        pendingOtpCode = OtpCodeParser.extract(message)
+    }
+
+    DisposableEffect(context) {
+        val receiver = OtpSmsConsentReceiver { consentIntent ->
+            try {
+                otpConsentLauncher.launch(consentIntent)
+            } catch (_: ActivityNotFoundException) {
+                // Google Play services could not display the one-time consent prompt.
+            }
+        }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(SmsRetriever.SMS_RETRIEVED_ACTION),
+            SmsRetriever.SEND_PERMISSION,
+            null,
+            ContextCompat.RECEIVER_EXPORTED
+        )
+        onDispose { context.unregisterReceiver(receiver) }
+    }
 
     // Bridges the WebView's file <input> to the system picker. onShowFileChooser hands us a
     // callback; we stash it, launch a chooser (document picker + camera when the input accepts
@@ -617,6 +668,34 @@ private fun FenjoonWebView(
                         }
                     }
                 }
+                WebViewCompat.addWebMessageListener(
+                    this,
+                    ANDROID_BRIDGE_NAME,
+                    setOf(FENJOON_URL)
+                ) { _, message, sourceOrigin, isMainFrame, _ ->
+                    if (
+                        isMainFrame &&
+                        sourceOrigin.scheme == "https" &&
+                        sourceOrigin.host == FENJOON_HOST &&
+                        sourceOrigin.port == -1
+                    ) {
+                        when (androidMessageType(message.data)) {
+                            START_OTP_LISTENING_MESSAGE -> {
+                                otpPageReady = false
+                                pendingOtpCode = null
+                                SmsRetriever.getClient(context).startSmsUserConsent(null)
+                            }
+                            OTP_VERIFICATION_PAGE_READY_MESSAGE -> {
+                                otpPageReady = true
+                                SmsRetriever.getClient(context).startSmsUserConsent(null)
+                            }
+                            OTP_VERIFICATION_PAGE_CLOSED_MESSAGE -> {
+                                otpPageReady = false
+                                pendingOtpCode = null
+                            }
+                        }
+                    }
+                }
             }
             addJavascriptInterface(
                 NotificationBridge(context) {
@@ -647,6 +726,14 @@ private fun FenjoonWebView(
     }
     var skipInitialTargetLoad by remember(webView) {
         mutableStateOf(initialStateRestored && preferRestoredPage)
+    }
+
+    LaunchedEffect(webView, pendingOtpCode, otpPageReady) {
+        val code = pendingOtpCode ?: return@LaunchedEffect
+        if (!otpPageReady) return@LaunchedEffect
+
+        pendingOtpCode = null
+        webView.evaluateJavascript(otpInjectionScript(code), null)
     }
 
     DisposableEffect(context, webView) {

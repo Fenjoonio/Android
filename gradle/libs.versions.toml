@@ -13,6 +13,7 @@ webkit = "1.12.1"
 googleServices = "4.5.0"
 firebaseBom = "33.7.0"
 workManager = "2.10.0"
+authApiPhone = "18.3.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -34,6 +35,7 @@ androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "w
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
 androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+google-auth-api-phone = { group = "com.google.android.gms", name = "play-services-auth-api-phone", version.ref = "authApiPhone" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
