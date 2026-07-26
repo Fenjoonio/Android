@@ -1,6 +1,7 @@
 package io.fenjoon.app.ui.theme
 
 import android.app.Activity
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -64,8 +65,10 @@ fun FenjoonTheme(
         val context = LocalContext.current
         SideEffect {
             val window = (context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            window.navigationBarColor = colorScheme.background.toArgb()
+            val bgColor = colorScheme.background.toArgb()
+            window.statusBarColor = bgColor
+            window.navigationBarColor = bgColor
+            window.setBackgroundDrawable(ColorDrawable(bgColor))
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 window.isNavigationBarContrastEnforced = false
             }

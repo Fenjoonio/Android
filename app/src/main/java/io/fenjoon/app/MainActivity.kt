@@ -40,6 +40,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,7 +106,10 @@ private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
 private const val NOTIFICATIONS_BRIDGE_NAME = "AndroidNotifications"
+private const val THEME_BRIDGE_NAME = "AndroidTheme"
 private const val STATE_NOTIFICATION_OPEN_KEY = "state_notification_open_key"
+private const val STATE_NATIVE_TARGET_URL_KEY = "state_native_target_url_key"
+private const val STATE_WEB_VIEW_KEY = "state_web_view_key"
 
 private const val SPLASH_HEAD = "فـ" // ف + kashida, so it shows its connecting (initial) form
 private const val SPLASH_TAIL = "نجون"
@@ -230,26 +234,106 @@ private fun fcmTokenInjectionScript(token: String): String {
 private val APP_VERSION_INJECTION_SCRIPT =
     "localStorage.setItem('fenjoonAppVersion',${JSONObject.quote(BuildConfig.VERSION_NAME)});"
 
+private const val THEME_SYNC_SCRIPT = """
+(function() {
+  if (window.__fenjoonThemeObserver) return;
+
+  var root = document.documentElement;
+  var bridge = window.$THEME_BRIDGE_NAME;
+  if (!root || !bridge) return;
+
+  function syncTheme() {
+    var theme = root.getAttribute('data-theme');
+    if (theme === 'dark' || theme === 'light') {
+      bridge.setTheme(theme === 'dark');
+    }
+  }
+
+  new MutationObserver(syncTheme).observe(root, {
+    attributes: true,
+    attributeFilter: ['data-theme']
+  });
+  window.__fenjoonThemeObserver = true;
+  syncTheme();
+})();
+"""
+
+private val WEB_INJECTION_SCRIPTS = listOf(
+    WEB_SHARE_POLYFILL,
+    APP_VERSION_INJECTION_SCRIPT,
+    THEME_SYNC_SCRIPT
+)
+
+private class WebViewStateHolder(restoredState: Bundle?) {
+    private var pendingRestoredState = restoredState
+    private var attachedWebView: WebView? = null
+
+    fun attach(webView: WebView): Boolean {
+        attachedWebView = webView
+        val state = pendingRestoredState ?: return false
+        pendingRestoredState = null
+        return webView.restoreState(state) != null
+    }
+
+    fun detach(webView: WebView) {
+        if (attachedWebView === webView) {
+            attachedWebView = null
+        }
+    }
+
+    fun saveTo(outState: Bundle) {
+        val webViewState = Bundle()
+        if (attachedWebView?.saveState(webViewState) != null) {
+            outState.putBundle(STATE_WEB_VIEW_KEY, webViewState)
+        } else {
+            pendingRestoredState?.let {
+                outState.putBundle(STATE_WEB_VIEW_KEY, Bundle(it))
+            }
+        }
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private var currentUrl by mutableStateOf(FENJOON_START_URL)
+    private var navigationSequence by mutableStateOf(0L)
+    private var lastAppliedNativeTargetUrl = FENJOON_START_URL
     private var lastHandledNotificationOpen: String? = null
+    private lateinit var webViewStateHolder: WebViewStateHolder
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         lastHandledNotificationOpen = savedInstanceState?.getString(STATE_NOTIFICATION_OPEN_KEY)
+        webViewStateHolder = WebViewStateHolder(
+            savedInstanceState?.getBundle(STATE_WEB_VIEW_KEY)
+        )
         if (savedInstanceState == null) {
             NotificationPresentationState.reset()
         }
-        currentUrl = intent.toFenjoonUrl()
+        val incomingUrl = intent.toFenjoonUrl()
+        val savedTargetUrl = savedInstanceState?.getString(STATE_NATIVE_TARGET_URL_KEY)
+        val preferRestoredPage = savedTargetUrl == null || incomingUrl == savedTargetUrl
+        currentUrl = incomingUrl
+        lastAppliedNativeTargetUrl = savedTargetUrl ?: incomingUrl
         handleChatNotificationOpen(intent)
         setContent {
-            FenjoonTheme {
+            var webThemeIsDark by remember { mutableStateOf<Boolean?>(null) }
+            FenjoonTheme(darkTheme = webThemeIsDark ?: isSystemInDarkTheme()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    FenjoonWebView(url = currentUrl)
+                    FenjoonWebView(
+                        url = currentUrl,
+                        navigationSequence = navigationSequence,
+                        stateHolder = webViewStateHolder,
+                        preferRestoredPage = preferRestoredPage,
+                        onRestoredPageAccepted = { restoredUrl -> currentUrl = restoredUrl },
+                        onNativeTargetApplied = { appliedUrl ->
+                            lastAppliedNativeTargetUrl = appliedUrl
+                        },
+                        onThemeChanged = { webThemeIsDark = it }
+                    )
                 }
             }
         }
@@ -259,11 +343,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         currentUrl = intent.toFenjoonUrl()
+        navigationSequence += 1
         handleChatNotificationOpen(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         lastHandledNotificationOpen?.let { outState.putString(STATE_NOTIFICATION_OPEN_KEY, it) }
+        outState.putString(STATE_NATIVE_TARGET_URL_KEY, lastAppliedNativeTargetUrl)
+        webViewStateHolder.saveTo(outState)
         super.onSaveInstanceState(outState)
     }
 
@@ -315,9 +402,15 @@ class MainActivity : ComponentActivity() {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun FenjoonWebView(
+private fun FenjoonWebView(
     modifier: Modifier = Modifier,
-    url: String = FENJOON_URL
+    url: String = FENJOON_URL,
+    navigationSequence: Long,
+    stateHolder: WebViewStateHolder,
+    preferRestoredPage: Boolean,
+    onRestoredPageAccepted: (String) -> Unit,
+    onNativeTargetApplied: (String) -> Unit,
+    onThemeChanged: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
@@ -325,6 +418,9 @@ fun FenjoonWebView(
     var hasError by remember { mutableStateOf(false) }
     var isOnline by remember { mutableStateOf(context.isOnline()) }
     var showSplash by remember { mutableStateOf(true) }
+    var pendingNativeTargetUrl by remember { mutableStateOf<String?>(null) }
+    var pendingNativeTargetStarted by remember { mutableStateOf(false) }
+    var pendingNativePageUrl by remember { mutableStateOf<String?>(null) }
 
     // Bridges the WebView's file <input> to the system picker. onShowFileChooser hands us a
     // callback; we stash it, launch a chooser (document picker + camera when the input accepts
@@ -441,6 +537,27 @@ fun FenjoonWebView(
             scrollBarStyle = WebView.SCROLLBARS_INSIDE_OVERLAY
             webViewClient = FenjoonWebViewClient(
                 onLoadingChanged = { isLoading = it },
+                onMainPageStarted = { startedUrl ->
+                    if (startedUrl.isEquivalentWebViewUrl(pendingNativeTargetUrl)) {
+                        pendingNativeTargetStarted = true
+                    }
+                    if (pendingNativeTargetStarted) {
+                        pendingNativePageUrl = startedUrl
+                    }
+                },
+                onMainPageFinished = { finishedUrl ->
+                    val appliedUrl = pendingNativeTargetUrl
+                    if (
+                        appliedUrl != null &&
+                        pendingNativeTargetStarted &&
+                        finishedUrl.isEquivalentWebViewUrl(pendingNativePageUrl)
+                    ) {
+                        pendingNativeTargetUrl = null
+                        pendingNativeTargetStarted = false
+                        pendingNativePageUrl = null
+                        onNativeTargetApplied(appliedUrl)
+                    }
+                },
                 onError = { hasError = true }
             )
             webChromeClient = FenjoonWebChromeClient { callback, params ->
@@ -511,22 +628,25 @@ fun FenjoonWebView(
                 },
                 NOTIFICATIONS_BRIDGE_NAME
             )
+            addJavascriptInterface(
+                ThemeBridge(context as Activity, onThemeChanged),
+                THEME_BRIDGE_NAME
+            )
             // Inject native capabilities before any page script runs. onPageStarted
             // below is the fallback for WebViews without DOCUMENT_START_SCRIPT.
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                 val allowedOrigins = setOf("https://$FENJOON_HOST")
-                WebViewCompat.addDocumentStartJavaScript(
-                    this,
-                    WEB_SHARE_POLYFILL,
-                    allowedOrigins
-                )
-                WebViewCompat.addDocumentStartJavaScript(
-                    this,
-                    APP_VERSION_INJECTION_SCRIPT,
-                    allowedOrigins
-                )
+                WEB_INJECTION_SCRIPTS.forEach { script ->
+                    WebViewCompat.addDocumentStartJavaScript(this, script, allowedOrigins)
+                }
             }
         }
+    }
+    val initialStateRestored = remember(webView, stateHolder) {
+        stateHolder.attach(webView)
+    }
+    var skipInitialTargetLoad by remember(webView) {
+        mutableStateOf(initialStateRestored && preferRestoredPage)
     }
 
     DisposableEffect(context, webView) {
@@ -633,11 +753,24 @@ fun FenjoonWebView(
         }
     }
 
-    LaunchedEffect(url) {
+    LaunchedEffect(navigationSequence) {
+        if (skipInitialTargetLoad) {
+            skipInitialTargetLoad = false
+            if (navigationSequence == 0L) {
+                webView.url?.let(onRestoredPageAccepted)
+                return@LaunchedEffect
+            }
+        }
+
         if (webView.url != url) {
             hasError = false
             isLoading = true
+            pendingNativeTargetUrl = url
+            pendingNativeTargetStarted = false
+            pendingNativePageUrl = null
             webView.loadUrl(url)
+        } else {
+            onNativeTargetApplied(url)
         }
     }
 
@@ -659,8 +792,9 @@ fun FenjoonWebView(
         }
     }
 
-    DisposableEffect(webView) {
+    DisposableEffect(webView, stateHolder) {
         onDispose {
+            stateHolder.detach(webView)
             webView.destroy()
         }
     }
@@ -828,6 +962,8 @@ private fun ErrorState(
 
 private class FenjoonWebViewClient(
     private val onLoadingChanged: (Boolean) -> Unit,
+    private val onMainPageStarted: (String) -> Unit,
+    private val onMainPageFinished: (String) -> Unit,
     private val onError: () -> Unit
 ) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -850,19 +986,16 @@ private class FenjoonWebViewClient(
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         onLoadingChanged(true)
+        onMainPageStarted(url)
         val pageUri = Uri.parse(url)
         val isFenjoonPage = pageUri.scheme == "https" &&
             pageUri.host == FENJOON_HOST && pageUri.port == -1
-        // Fallback for WebViews that don't support DOCUMENT_START_SCRIPT. The
-        // polyfill is idempotent, so it's a no-op when the document-start
-        // injection already ran.
         if (isFenjoonPage) {
-            view.evaluateJavascript(WEB_SHARE_POLYFILL, null)
-            view.evaluateJavascript(APP_VERSION_INJECTION_SCRIPT, null)
-        }
-        // Hand the current FCM token to the web layer so it can register token↔user with the
-        // backend using the logged-in session.
-        if (isFenjoonPage) {
+            // Fallback for WebViews without document-start injection. Each script is idempotent.
+            WEB_INJECTION_SCRIPTS.forEach { script ->
+                view.evaluateJavascript(script, null)
+            }
+            // Hand the FCM token to the web app so it can associate it with the signed-in user.
             TokenStore(view.context).get()?.takeIf { it.isNotEmpty() }?.let { token ->
                 view.evaluateJavascript(fcmTokenInjectionScript(token), null)
             }
@@ -871,6 +1004,7 @@ private class FenjoonWebViewClient(
 
     override fun onPageFinished(view: WebView, url: String) {
         onLoadingChanged(false)
+        onMainPageFinished(url)
     }
 
     override fun onReceivedError(
@@ -976,6 +1110,26 @@ private fun Uri.isInternalWebViewUrl(): Boolean {
     return scheme == "about" || scheme == "data" || scheme == "file"
 }
 
+private fun Uri.effectivePort(): Int = when {
+    port != -1 -> port
+    scheme.equals("https", ignoreCase = true) -> 443
+    scheme.equals("http", ignoreCase = true) -> 80
+    else -> -1
+}
+
+private fun String.isEquivalentWebViewUrl(other: String?): Boolean {
+    if (other == null) return false
+    val first = Uri.parse(this)
+    val second = Uri.parse(other)
+    return first.scheme.equals(second.scheme, ignoreCase = true) &&
+        first.host.equals(second.host, ignoreCase = true) &&
+        first.effectivePort() == second.effectivePort() &&
+        first.encodedPath.orEmpty().ifEmpty { "/" } ==
+        second.encodedPath.orEmpty().ifEmpty { "/" } &&
+        first.encodedQuery == second.encodedQuery &&
+        first.encodedFragment == second.encodedFragment
+}
+
 private fun Uri.toFenjoonWebUrl(): String? {
     if (scheme == "https" && host == FENJOON_HOST) return toString()
     if (scheme != FENJOON_SCHEME) return null
@@ -1008,7 +1162,15 @@ private fun Uri.toFenjoonWebUrl(): String? {
 @Preview(showBackground = true)
 @Composable
 fun FenjoonWebViewPreview() {
+    val stateHolder = remember { WebViewStateHolder(null) }
     FenjoonTheme {
-        FenjoonWebView()
+        FenjoonWebView(
+            navigationSequence = 0,
+            stateHolder = stateHolder,
+            preferRestoredPage = true,
+            onRestoredPageAccepted = {},
+            onNativeTargetApplied = {},
+            onThemeChanged = {}
+        )
     }
 }
