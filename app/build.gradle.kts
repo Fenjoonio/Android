@@ -34,7 +34,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -49,11 +50,13 @@ android {
         compose = true
         buildConfig = true
     }
+    androidResources {
+        localeFilters += listOf("en", "fa")
+    }
 }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
