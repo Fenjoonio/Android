@@ -99,12 +99,13 @@ import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 
 private const val FENJOON_URL = "https://app.fenjoon.io"
-private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
+private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=bazzar"
 private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
 private const val NOTIFICATIONS_BRIDGE_NAME = "AndroidNotifications"
+private const val OTP_BRIDGE_NAME = "Android"
 private const val STATE_NOTIFICATION_OPEN_KEY = "state_notification_open_key"
 
 private const val SPLASH_HEAD = "فـ" // ف + kashida, so it shows its connecting (initial) form
@@ -309,6 +310,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         NotificationPresentationState.setActivityForeground(false)
+        // WebView persists cookies asynchronously. Flush before the app backgrounds so every
+        // cookie received during this session survives the next launch.
+        CookieManager.getInstance().flush()
         super.onPause()
     }
 }
@@ -415,6 +419,8 @@ fun FenjoonWebView(
         ActivityResultContracts.RequestPermission()
     ) { /* granted — web can re-check via AndroidNotifications.notificationsEnabled() */ }
 
+    val otpBridge = remember { OtpBridge(context as Activity) }
+
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -435,6 +441,9 @@ fun FenjoonWebView(
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
             isFocusable = true
             isFocusableInTouchMode = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+            }
             overScrollMode = WebView.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
@@ -511,6 +520,9 @@ fun FenjoonWebView(
                 },
                 NOTIFICATIONS_BRIDGE_NAME
             )
+            // Exposes window.Android.postMessage for OTP listening (see OtpBridge).
+            addJavascriptInterface(otpBridge, OTP_BRIDGE_NAME)
+            otpBridge.setWebView(this)
             // Inject native capabilities before any page script runs. onPageStarted
             // below is the fallback for WebViews without DOCUMENT_START_SCRIPT.
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
@@ -659,8 +671,10 @@ fun FenjoonWebView(
         }
     }
 
-    DisposableEffect(webView) {
+    DisposableEffect(webView, otpBridge) {
         onDispose {
+            otpBridge.stopOtpListening()
+            otpBridge.setWebView(null)
             webView.destroy()
         }
     }
@@ -870,6 +884,9 @@ private class FenjoonWebViewClient(
     }
 
     override fun onPageFinished(view: WebView, url: String) {
+        // WebView writes cookies to disk asynchronously. Persist every cookie received by a
+        // completed page so onboarding, authentication, and future frontend cookies all survive.
+        CookieManager.getInstance().flush()
         onLoadingChanged(false)
     }
 

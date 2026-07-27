@@ -21,6 +21,10 @@ class FenjoonApp : Application() {
             "ChatNotificationReconcile",
         ).start()
 
+        if (BuildConfig.DEBUG) {
+            AppSignatureHelper(this).getAppSignatures()
+        }
+
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token -> TokenStore(this).save(token) }
             .addOnFailureListener { e -> Log.w(TAG, "Failed to fetch FCM token", e) }
