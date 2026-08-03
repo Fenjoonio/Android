@@ -17,9 +17,22 @@ import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Status
 import org.json.JSONObject
 
-private const val TAG = "OtpBridge"
+private const val TAG = "AndroidBridge"
 private val WEB_OTP_PATTERN = Regex("""#\s*([0-9]{5})\b""")
 private val OTP_PATTERN = Regex("""(?<![0-9])[0-9]{5}(?![0-9])""")
+
+enum class ThemeSelection {
+    Light,
+    Dark,
+    System,
+}
+
+internal fun parseThemeSelection(value: String): ThemeSelection? = when (value) {
+    "light" -> ThemeSelection.Light
+    "dark" -> ThemeSelection.Dark
+    "system" -> ThemeSelection.System
+    else -> null
+}
 
 internal fun extractOtpCode(smsMessage: String): String? {
     WEB_OTP_PATTERN.find(smsMessage)?.groupValues?.getOrNull(1)?.let { return it }
@@ -27,7 +40,7 @@ internal fun extractOtpCode(smsMessage: String): String? {
 }
 
 /**
- * JS bridge exposed as `window.Android`. Handles OTP-related messages from the web app.
+ * JS bridge exposed as `window.Android`. Handles app messages from the web frontend.
  *
  * Uses the silent SMS Retriever API (no user consent UI). The outbound SMS **must**
  * contain this app's 11-character hash on its own line — otherwise Play Services will
@@ -41,8 +54,9 @@ internal fun extractOtpCode(smsMessage: String): String? {
  * <APP_HASH>
  * ```
  */
-class OtpBridge(
+class AndroidBridge(
     private val activity: Activity,
+    private val onThemeChanged: (ThemeSelection) -> Unit,
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var smsReceiver: BroadcastReceiver? = null
@@ -53,7 +67,7 @@ class OtpBridge(
 
     /**
      * Called from JavaScript: window.Android.postMessage(jsonString)
-     * Parses the message type and handles OTP-related actions.
+     * Parses the message type and dispatches native actions.
      */
     @JavascriptInterface
     fun postMessage(jsonString: String) {
@@ -76,6 +90,9 @@ class OtpBridge(
                     // Keep listening + any cached OTP so a brief unmount/remount
                     // (or slow navigation) does not drop a code that already arrived.
                     isVerificationPageReady = false
+                }
+                "themeChanged" -> parseThemeSelection(json.optString("theme", ""))?.let { theme ->
+                    mainHandler.post { onThemeChanged(theme) }
                 }
             }
         } catch (e: Exception) {

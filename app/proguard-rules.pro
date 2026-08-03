@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Room 2.6.1 keeps generated database class names, but R8 full mode can remove
+# their implicit no-argument constructors even though Room creates them via reflection.
+-keepclassmembers class * extends androidx.room.RoomDatabase {
+    public <init>();
+}

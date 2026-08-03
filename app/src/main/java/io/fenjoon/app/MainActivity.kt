@@ -40,6 +40,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -79,7 +81,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
@@ -105,7 +109,7 @@ private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
 private const val NOTIFICATIONS_BRIDGE_NAME = "AndroidNotifications"
-private const val OTP_BRIDGE_NAME = "Android"
+private const val ANDROID_BRIDGE_NAME = "Android"
 private const val STATE_NOTIFICATION_OPEN_KEY = "state_notification_open_key"
 
 private const val SPLASH_HEAD = "فـ" // ف + kashida, so it shows its connecting (initial) form
@@ -233,10 +237,12 @@ private val APP_VERSION_INJECTION_SCRIPT =
 
 class MainActivity : ComponentActivity() {
     private var currentUrl by mutableStateOf(FENJOON_START_URL)
+    private var themeSelection by mutableStateOf(ThemeSelection.System)
     private var lastHandledNotificationOpen: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         lastHandledNotificationOpen = savedInstanceState?.getString(STATE_NOTIFICATION_OPEN_KEY)
         if (savedInstanceState == null) {
             NotificationPresentationState.reset()
@@ -244,13 +250,23 @@ class MainActivity : ComponentActivity() {
         currentUrl = intent.toFenjoonUrl()
         handleChatNotificationOpen(intent)
         setContent {
-            FenjoonTheme {
+            val systemDarkTheme = isSystemInDarkTheme()
+            val darkTheme = when (themeSelection) {
+                ThemeSelection.Light -> false
+                ThemeSelection.Dark -> true
+                ThemeSelection.System -> systemDarkTheme
+            }
+
+            FenjoonTheme(darkTheme = darkTheme) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background)
                 ) {
-                    FenjoonWebView(url = currentUrl)
+                    FenjoonWebView(
+                        url = currentUrl,
+                        onThemeChanged = { themeSelection = it }
+                    )
                 }
             }
         }
@@ -317,18 +333,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun FenjoonWebView(
     modifier: Modifier = Modifier,
-    url: String = FENJOON_URL
+    url: String = FENJOON_URL,
+    onThemeChanged: (ThemeSelection) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val currentOnThemeChanged by rememberUpdatedState(onThemeChanged)
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
     var isLoading by remember { mutableStateOf(true) }
     var hasError by remember { mutableStateOf(false) }
     var isOnline by remember { mutableStateOf(context.isOnline()) }
     var showSplash by remember { mutableStateOf(true) }
+    var safeAreaInjectionScript by remember { mutableStateOf<String?>(null) }
 
     // Bridges the WebView's file <input> to the system picker. onShowFileChooser hands us a
     // callback; we stash it, launch a chooser (document picker + camera when the input accepts
@@ -419,7 +438,11 @@ fun FenjoonWebView(
         ActivityResultContracts.RequestPermission()
     ) { /* granted — web can re-check via AndroidNotifications.notificationsEnabled() */ }
 
-    val otpBridge = remember { OtpBridge(context as Activity) }
+    val androidBridge: AndroidBridge = remember {
+        AndroidBridge(context as Activity) { theme ->
+            currentOnThemeChanged(theme)
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -450,7 +473,10 @@ fun FenjoonWebView(
             scrollBarStyle = WebView.SCROLLBARS_INSIDE_OVERLAY
             webViewClient = FenjoonWebViewClient(
                 onLoadingChanged = { isLoading = it },
-                onError = { hasError = true }
+                onError = { hasError = true },
+                onFenjoonPageStarted = { view ->
+                    safeAreaInjectionScript?.let { view.evaluateJavascript(it, null) }
+                }
             )
             webChromeClient = FenjoonWebChromeClient { callback, params ->
                 // Release any previous, still-pending callback so a stale picker
@@ -520,9 +546,9 @@ fun FenjoonWebView(
                 },
                 NOTIFICATIONS_BRIDGE_NAME
             )
-            // Exposes window.Android.postMessage for OTP listening (see OtpBridge).
-            addJavascriptInterface(otpBridge, OTP_BRIDGE_NAME)
-            otpBridge.setWebView(this)
+            // Exposes window.Android.postMessage for native app messages (see AndroidBridge).
+            addJavascriptInterface(androidBridge, ANDROID_BRIDGE_NAME)
+            androidBridge.setWebView(this)
             // Inject native capabilities before any page script runs. onPageStarted
             // below is the fallback for WebViews without DOCUMENT_START_SCRIPT.
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
@@ -547,14 +573,43 @@ fun FenjoonWebView(
         val density = context.resources.displayMetrics.density
         var animationDuration = 0L
         var lastKeyboardHeight = -1
+        var lastSafeAreaInsets: List<Int>? = null
+
+        fun dispatchSafeAreaInsets(insets: WindowInsetsCompat) {
+            val safeArea = insets.getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout()
+            )
+            val safeAreaBottom = if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                0
+            } else {
+                safeArea.bottom
+            }
+            val values = listOf(
+                (safeArea.top / density).toInt(),
+                (safeArea.right / density).toInt(),
+                (safeAreaBottom / density).toInt(),
+                (safeArea.left / density).toInt()
+            )
+            if (values == lastSafeAreaInsets) return
+            lastSafeAreaInsets = values
+
+            val script = "(function(){function apply(){var root=document.documentElement;" +
+                "if(!root)return false;" +
+                "root.style.setProperty('--safe-area-inset-top','${values[0]}px');" +
+                "root.style.setProperty('--safe-area-inset-right','${values[1]}px');" +
+                "root.style.setProperty('--safe-area-inset-bottom','${values[2]}px');" +
+                "root.style.setProperty('--safe-area-inset-left','${values[3]}px');" +
+                "return true;}if(!apply()){document.addEventListener(" +
+                "'DOMContentLoaded',apply,{once:true});}return true;})();"
+            safeAreaInjectionScript = script
+            webView.post { webView.evaluateJavascript(script, null) }
+        }
 
         fun dispatchKeyboardHeight(insets: WindowInsetsCompat) {
             val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            val navigationBarBottom = insets
-                .getInsets(WindowInsetsCompat.Type.navigationBars())
-                .bottom
             val keyboardHeight = if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
-                ((imeBottom - navigationBarBottom).coerceAtLeast(0) / density).toInt()
+                (imeBottom / density).toInt()
             } else {
                 0
             }
@@ -570,9 +625,31 @@ fun FenjoonWebView(
             }
         }
 
+        fun withoutIme(insets: WindowInsetsCompat): WindowInsetsCompat {
+            // Remove only the occluding dimensions. Keep visibility intact so WebView's
+            // autofill and OTP integrations still observe the real keyboard state.
+            val builder = WindowInsetsCompat.Builder(insets)
+                .setInsets(WindowInsetsCompat.Type.ime(), Insets.NONE)
+
+            if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                builder
+                    .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.NONE)
+                    .setInsetsIgnoringVisibility(
+                        WindowInsetsCompat.Type.navigationBars(),
+                        Insets.NONE
+                    )
+            }
+
+            return builder.build()
+        }
+
         ViewCompat.setOnApplyWindowInsetsListener(insetView) { _, insets ->
+            dispatchSafeAreaInsets(insets)
             dispatchKeyboardHeight(insets)
-            insets
+            // adjustNothing prevents the Android window from resizing, but WebView M139+
+            // independently consumes IME insets and scrolls its visual viewport. Clear the IME
+            // before dispatch and suppress the bottom safe area while the keyboard is visible.
+            withoutIme(insets)
         }
         ViewCompat.setWindowInsetsAnimationCallback(
             insetView,
@@ -594,7 +671,7 @@ fun FenjoonWebView(
                     runningAnimations: MutableList<WindowInsetsAnimationCompat>
                 ): WindowInsetsCompat {
                     dispatchKeyboardHeight(insets)
-                    return insets
+                    return withoutIme(insets)
                 }
             }
         )
@@ -671,10 +748,10 @@ fun FenjoonWebView(
         }
     }
 
-    DisposableEffect(webView, otpBridge) {
+    DisposableEffect(webView, androidBridge) {
         onDispose {
-            otpBridge.stopOtpListening()
-            otpBridge.setWebView(null)
+            androidBridge.stopOtpListening()
+            androidBridge.setWebView(null)
             webView.destroy()
         }
     }
@@ -842,7 +919,8 @@ private fun ErrorState(
 
 private class FenjoonWebViewClient(
     private val onLoadingChanged: (Boolean) -> Unit,
-    private val onError: () -> Unit
+    private val onError: () -> Unit,
+    private val onFenjoonPageStarted: (WebView) -> Unit
 ) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url
@@ -873,6 +951,7 @@ private class FenjoonWebViewClient(
         if (isFenjoonPage) {
             view.evaluateJavascript(WEB_SHARE_POLYFILL, null)
             view.evaluateJavascript(APP_VERSION_INJECTION_SCRIPT, null)
+            onFenjoonPageStarted(view)
         }
         // Hand the current FCM token to the web layer so it can register token↔user with the
         // backend using the logged-in session.
