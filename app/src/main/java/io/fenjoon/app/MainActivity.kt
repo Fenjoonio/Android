@@ -103,7 +103,7 @@ import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 
 private const val FENJOON_URL = "https://app.fenjoon.io"
-private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=bazzar"
+private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
 private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
@@ -222,13 +222,14 @@ private const val WEB_SHARE_POLYFILL = """
 """
 
 /**
- * JS that hands the FCM token to the web app: sets `window.__fenjoonFcmToken` and calls
- * `window.onFcmToken(token)` if the page defined it. The web app maps the token to the
- * logged-in user, since the device itself has no native identity.
+ * Hands the FCM token to both generations of the web integration. Production originally used
+ * `expoPushTokenReady`; the newer bridge also exposes `__fenjoonFcmToken` / `onFcmToken`.
  */
 private fun fcmTokenInjectionScript(token: String): String {
     val quoted = JSONObject.quote(token)
-    return "window.__fenjoonFcmToken=$quoted;" +
+    return "window.expoPushToken=$quoted;" +
+        "window.__fenjoonFcmToken=$quoted;" +
+        "window.dispatchEvent(new CustomEvent('expoPushTokenReady',{detail:$quoted}));" +
         "if(typeof window.onFcmToken==='function'){try{window.onFcmToken($quoted);}catch(e){}}"
 }
 
@@ -748,6 +749,26 @@ fun FenjoonWebView(
         }
     }
 
+    DisposableEffect(context, webView) {
+        val tokenStore = TokenStore(context)
+        val mainHandler = Handler(Looper.getMainLooper())
+        var active = true
+        val tokenListener: (String) -> Unit = { token ->
+            mainHandler.post {
+                if (active && webView.url.isFenjoonWebPage()) {
+                    webView.evaluateJavascript(fcmTokenInjectionScript(token), null)
+                }
+            }
+        }
+        tokenStore.addListener(tokenListener)
+        tokenStore.get()?.takeIf(String::isNotEmpty)?.let(tokenListener)
+
+        onDispose {
+            active = false
+            tokenStore.removeListener(tokenListener)
+        }
+    }
+
     DisposableEffect(webView, androidBridge) {
         onDispose {
             androidBridge.stopOtpListening()
@@ -942,9 +963,7 @@ private class FenjoonWebViewClient(
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         onLoadingChanged(true)
-        val pageUri = Uri.parse(url)
-        val isFenjoonPage = pageUri.scheme == "https" &&
-            pageUri.host == FENJOON_HOST && pageUri.port == -1
+        val isFenjoonPage = url.isFenjoonWebPage()
         // Fallback for WebViews that don't support DOCUMENT_START_SCRIPT. The
         // polyfill is idempotent, so it's a no-op when the document-start
         // injection already ran.
@@ -963,6 +982,13 @@ private class FenjoonWebViewClient(
     }
 
     override fun onPageFinished(view: WebView, url: String) {
+        // Re-dispatch after the page scripts have installed their listeners. The original web
+        // integration registers the device from the `expoPushTokenReady` event at this point.
+        if (url.isFenjoonWebPage()) {
+            TokenStore(view.context).get()?.takeIf(String::isNotEmpty)?.let { token ->
+                view.evaluateJavascript(fcmTokenInjectionScript(token), null)
+            }
+        }
         // WebView writes cookies to disk asynchronously. Persist every cookie received by a
         // completed page so onboarding, authentication, and future frontend cookies all survive.
         CookieManager.getInstance().flush()
@@ -1062,6 +1088,12 @@ private fun Context.isOnline(): Boolean {
     val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
     return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
         capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+}
+
+private fun String?.isFenjoonWebPage(): Boolean {
+    if (this == null) return false
+    val uri = Uri.parse(this)
+    return uri.scheme == "https" && uri.host == FENJOON_HOST && uri.port == -1
 }
 
 private fun Uri.isFenjoonUrl(): Boolean {
