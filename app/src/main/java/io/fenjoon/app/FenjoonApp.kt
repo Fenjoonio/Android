@@ -3,6 +3,9 @@ package io.fenjoon.app
 import android.app.Application
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessaging
+import com.microsoft.clarity.Clarity
+import com.microsoft.clarity.ClarityConfig
+import com.microsoft.clarity.models.LogLevel
 import io.fenjoon.app.notifications.ChatNotificationCoordinator
 import io.fenjoon.app.notifications.NotificationChannels
 import io.fenjoon.app.notifications.TokenStore
@@ -15,6 +18,16 @@ import io.fenjoon.app.notifications.TokenStore
 class FenjoonApp : Application() {
     override fun onCreate() {
         super.onCreate()
+
+        val clarityProjectId = BuildConfig.CLARITY_PROJECT_ID
+        if (clarityProjectId.isNotBlank()) {
+            val clarityConfig = ClarityConfig(
+                projectId = clarityProjectId,
+                logLevel = if (BuildConfig.DEBUG) LogLevel.Verbose else LogLevel.None,
+            )
+            Clarity.initialize(applicationContext, clarityConfig)
+        }
+
         NotificationChannels.createAll(this)
         Thread(
             { ChatNotificationCoordinator.reconcile(applicationContext) },

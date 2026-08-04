@@ -13,6 +13,7 @@ googleServices = "4.5.0"
 firebaseBom = "33.7.0"
 workManager = "2.10.0"
 playServicesAuthApiPhone = "18.3.1"
+clarity = "3.8.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -34,6 +35,7 @@ firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.r
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
 androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 play-services-auth-api-phone = { group = "com.google.android.gms", name = "play-services-auth-api-phone", version.ref = "playServicesAuthApiPhone" }
+microsoft-clarity-compose = { group = "com.microsoft.clarity", name = "clarity-compose", version.ref = "clarity" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

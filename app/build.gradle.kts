@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
+val clarityProjectId = providers.environmentVariable("CLARITY_PROJECT_ID")
+    .orElse(providers.gradleProperty("clarityProjectId"))
+    .getOrElse("")
+
 android {
     namespace = "io.fenjoon.app"
     compileSdk {
@@ -30,6 +34,11 @@ android {
         val notificationApiOrigin = (project.findProperty("fenjoonApiOrigin") as String?)
             ?.takeIf(String::isNotBlank) ?: "https://api.fenjoon.io"
         buildConfigField("String", "NOTIFICATION_API_ORIGIN", "\"$notificationApiOrigin\"")
+
+        val escapedClarityProjectId = clarityProjectId
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        buildConfigField("String", "CLARITY_PROJECT_ID", "\"$escapedClarityProjectId\"")
     }
 
     buildTypes {
@@ -69,6 +78,7 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.androidx.work.runtime)
     implementation(libs.play.services.auth.api.phone)
+    implementation(libs.microsoft.clarity.compose)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
