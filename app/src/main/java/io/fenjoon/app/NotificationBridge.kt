@@ -27,7 +27,7 @@ class NotificationBridge(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val tokenStore = TokenStore(appContext)
 
-    /** Current FCM token, or "" if not fetched yet (web can retry, or wait for onFcmToken). */
+    /** Current FCM token, or "" if not fetched yet (web can wait for pushTokenReady). */
     @JavascriptInterface
     fun getToken(): String = tokenStore.get().orEmpty()
 

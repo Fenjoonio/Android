@@ -221,16 +221,10 @@ private const val WEB_SHARE_POLYFILL = """
 })();
 """
 
-/**
- * Hands the FCM token to both generations of the web integration. Production originally used
- * `expoPushTokenReady`; the newer bridge also exposes `__fenjoonFcmToken` / `onFcmToken`.
- */
 private fun fcmTokenInjectionScript(token: String): String {
     val quoted = JSONObject.quote(token)
-    return "window.expoPushToken=$quoted;" +
-        "window.__fenjoonFcmToken=$quoted;" +
-        "window.dispatchEvent(new CustomEvent('expoPushTokenReady',{detail:$quoted}));" +
-        "if(typeof window.onFcmToken==='function'){try{window.onFcmToken($quoted);}catch(e){}}"
+    return "window.pushToken=$quoted;" +
+        "window.dispatchEvent(new CustomEvent('pushTokenReady',{detail:$quoted}));"
 }
 
 private val APP_VERSION_INJECTION_SCRIPT =
@@ -982,8 +976,7 @@ private class FenjoonWebViewClient(
     }
 
     override fun onPageFinished(view: WebView, url: String) {
-        // Re-dispatch after the page scripts have installed their listeners. The original web
-        // integration registers the device from the `expoPushTokenReady` event at this point.
+        // Re-dispatch after the page scripts have installed their pushTokenReady listener.
         if (url.isFenjoonWebPage()) {
             TokenStore(view.context).get()?.takeIf(String::isNotEmpty)?.let { token ->
                 view.evaluateJavascript(fcmTokenInjectionScript(token), null)
