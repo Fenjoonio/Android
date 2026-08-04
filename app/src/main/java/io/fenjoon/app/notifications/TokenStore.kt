@@ -4,7 +4,7 @@ import android.content.Context
 
 /**
  * Persists the current FCM registration token so it survives restarts and is available to the
- * `AndroidNotifications` JS bridge immediately, before Firebase re-fetches it. The token is
+ * `Android` JS bridge immediately, before Firebase re-fetches it. The token is
  * mapped to a user by the web layer (which owns the session) — the device has no native
  * identity — so this is just a cache, not the source of truth.
  */

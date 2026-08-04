@@ -108,7 +108,6 @@ private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
 private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
-private const val NOTIFICATIONS_BRIDGE_NAME = "AndroidNotifications"
 private const val ANDROID_BRIDGE_NAME = "Android"
 private const val STATE_NOTIFICATION_OPEN_KEY = "state_notification_open_key"
 
@@ -223,8 +222,7 @@ private const val WEB_SHARE_POLYFILL = """
 
 private fun fcmTokenInjectionScript(token: String): String {
     val quoted = JSONObject.quote(token)
-    return "window.pushToken=$quoted;" +
-        "window.dispatchEvent(new CustomEvent('pushTokenReady',{detail:$quoted}));"
+    return "window.dispatchEvent(new CustomEvent('pushTokenReady',{detail:$quoted}));"
 }
 
 private val APP_VERSION_INJECTION_SCRIPT =
@@ -426,17 +424,22 @@ fun FenjoonWebView(
         }
     }
 
-    // POST_NOTIFICATIONS needs a runtime grant on Android 13+. The AndroidNotifications bridge
-    // can trigger this from the web app at a good moment; the LaunchedEffect below is a fallback
-    // so notifications still work if the web app never asks.
+    // POST_NOTIFICATIONS needs a runtime grant on Android 13+. The Android bridge can trigger this
+    // from the web app at a good moment; the LaunchedEffect below is a fallback if the web never asks.
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* granted — web can re-check via AndroidNotifications.notificationsEnabled() */ }
+    ) { /* granted — web can re-check via Android.notificationsEnabled() */ }
 
     val androidBridge: AndroidBridge = remember {
-        AndroidBridge(context as Activity) { theme ->
-            currentOnThemeChanged(theme)
-        }
+        AndroidBridge(
+            activity = context as Activity,
+            onThemeChanged = { theme -> currentOnThemeChanged(theme) },
+            onRequestNotificationPermission = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            },
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -531,17 +534,7 @@ fun FenjoonWebView(
                     }
                 }
             }
-            addJavascriptInterface(
-                NotificationBridge(context) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notificationPermissionLauncher.launch(
-                            Manifest.permission.POST_NOTIFICATIONS
-                        )
-                    }
-                },
-                NOTIFICATIONS_BRIDGE_NAME
-            )
-            // Exposes window.Android.postMessage for native app messages (see AndroidBridge).
+            // Exposes the native app capabilities through one window.Android bridge.
             addJavascriptInterface(androidBridge, ANDROID_BRIDGE_NAME)
             androidBridge.setWebView(this)
             // Inject native capabilities before any page script runs. onPageStarted

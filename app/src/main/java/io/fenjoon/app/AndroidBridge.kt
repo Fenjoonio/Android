@@ -10,11 +10,17 @@ import android.os.Looper
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.os.BundleCompat
 import com.google.android.gms.auth.api.phone.SmsRetriever
 import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Status
+import com.google.firebase.messaging.FirebaseMessaging
+import io.fenjoon.app.notifications.ChatNotificationHistoryStore
+import io.fenjoon.app.notifications.NotificationPresentationState
+import io.fenjoon.app.notifications.Notifier
+import io.fenjoon.app.notifications.TokenStore
 import org.json.JSONObject
 
 private const val TAG = "AndroidBridge"
@@ -57,8 +63,11 @@ internal fun extractOtpCode(smsMessage: String): String? {
 class AndroidBridge(
     private val activity: Activity,
     private val onThemeChanged: (ThemeSelection) -> Unit,
+    private val onRequestNotificationPermission: () -> Unit,
 ) {
+    private val appContext = activity.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val tokenStore = TokenStore(appContext)
     private var smsReceiver: BroadcastReceiver? = null
     private var isListening = false
     private var isVerificationPageReady = false
@@ -98,6 +107,53 @@ class AndroidBridge(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse message: $jsonString", e)
         }
+    }
+
+    /** Current FCM token, or "" if not fetched yet (web can wait for pushTokenReady). */
+    @JavascriptInterface
+    fun getToken(): String = tokenStore.get().orEmpty()
+
+    /** Whether the user has notifications enabled for the app (channel-agnostic). */
+    @JavascriptInterface
+    fun notificationsEnabled(): Boolean =
+        NotificationManagerCompat.from(appContext).areNotificationsEnabled()
+
+    /** Triggers the native POST_NOTIFICATIONS prompt (Android 13+); no-op below. */
+    @JavascriptInterface
+    fun requestPermission() {
+        mainHandler.post { onRequestNotificationPermission() }
+    }
+
+    /** Marks the conversation currently visible in the web app. */
+    @JavascriptInterface
+    fun setActiveConversation(conversationId: String?) {
+        if (conversationId.isNullOrBlank()) return
+        NotificationPresentationState.setActiveConversation(conversationId)
+        Notifier.cancelConversation(appContext, conversationId)
+    }
+
+    /** Clears the conversation only if it is still the active one. */
+    @JavascriptInterface
+    fun clearActiveConversation(conversationId: String?) {
+        if (conversationId.isNullOrBlank()) return
+        NotificationPresentationState.clearActiveConversation(conversationId)
+    }
+
+    /** Removes any displayed notification for the supplied conversation. */
+    @JavascriptInterface
+    fun cancelConversationNotification(conversationId: String?) {
+        if (conversationId.isNullOrBlank()) return
+        Notifier.cancelConversation(appContext, conversationId)
+    }
+
+    /** Invalidates the token on logout so this device stops receiving the old user's pushes. */
+    @JavascriptInterface
+    fun clearToken() {
+        FirebaseMessaging.getInstance().deleteToken()
+        tokenStore.clear()
+        ChatNotificationHistoryStore(appContext).clearAll()
+        NotificationManagerCompat.from(appContext).cancelAll()
+        NotificationPresentationState.reset()
     }
 
     fun setWebView(webView: WebView?) {
