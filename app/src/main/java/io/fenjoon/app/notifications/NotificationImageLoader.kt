@@ -4,9 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
-import io.fenjoon.app.R
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -30,16 +27,15 @@ object NotificationImageLoader {
             size > MAX_CACHE_ENTRIES
     }
 
-    internal fun loadBrandIcon(context: Context): Bitmap? = try {
-        val target = targetSize(context)
-        ContextCompat.getDrawable(context, R.drawable.notification_brand_icon)
-            ?.toBitmap(target, target, Bitmap.Config.ARGB_8888)
-    } catch (exception: RuntimeException) {
-        Log.w(TAG, "Failed to render notification brand icon", exception)
-        null
-    }
-
     internal fun loadChatAvatar(
+        context: Context,
+        rawUrl: String?,
+        connectionFactory: (URL) -> HttpURLConnection = { url ->
+            url.openConnection() as HttpURLConnection
+        },
+    ): Bitmap? = loadNotificationImage(context, rawUrl, connectionFactory)
+
+    internal fun loadNotificationImage(
         context: Context,
         rawUrl: String?,
         connectionFactory: (URL) -> HttpURLConnection = { url ->

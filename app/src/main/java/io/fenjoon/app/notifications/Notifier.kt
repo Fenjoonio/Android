@@ -129,8 +129,8 @@ object Notifier {
             notificationId = identity.id,
         )
         val builder = NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
-            .applyBrandIcon(context)
+            .setSmallIcon(R.drawable.notification_app_icon)
+            .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
             .setContentTitle(payload.title)
             .setContentText(payload.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(payload.body))
@@ -181,8 +181,9 @@ object Notifier {
         context: Context,
         payload: NotificationPayload,
     ): NotificationCompat.Builder = NotificationCompat.Builder(context, payload.type.channelId)
-        .setSmallIcon(R.drawable.adaptive_icon)
-        .applyBrandIcon(context)
+        .setSmallIcon(R.drawable.notification_app_icon)
+        .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
+        .applyPayloadImage(context, payload.imageUrl)
         .setContentTitle(payload.title)
         .setContentText(payload.body)
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -226,8 +227,8 @@ object Notifier {
             context.getString(R.string.notification_public_urgent_title)
         }
         val builder = NotificationCompat.Builder(context, NotificationChannels.URGENT)
-            .setSmallIcon(R.drawable.adaptive_icon)
-            .applyBrandIcon(context)
+            .setSmallIcon(R.drawable.notification_app_icon)
+            .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
             .setContentTitle(title)
             .setContentText(payload.body)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -254,8 +255,8 @@ object Notifier {
             NotificationCompat.PRIORITY_HIGH
         }
         return NotificationCompat.Builder(context, type.channelId)
-            .setSmallIcon(R.drawable.adaptive_icon)
-            .applyBrandIcon(context)
+            .setSmallIcon(R.drawable.notification_app_icon)
+            .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
             .setContentTitle(context.getString(titleRes))
             .setContentText(context.getString(R.string.notification_public_generic_body))
             .setPriority(priority)
@@ -309,7 +310,8 @@ object Notifier {
             // Title/text remain available to launchers, accessibility services, and degraded hosts.
             .setContentTitle(presentation.title)
             .setContentText(formatInboxLine(presentation, presentation.messages.last()))
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_app_icon)
+            .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
             .applyChatIcon(context, presentation.avatarUrl, avatarLoader)
             .setStyle(inboxStyle(presentation))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -332,8 +334,8 @@ object Notifier {
 
     private fun publicChatNotification(context: Context) =
         NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
-            .applyBrandIcon(context)
+            .setSmallIcon(R.drawable.notification_app_icon)
+            .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
             .setContentTitle(context.getString(R.string.notification_public_chat_title))
             .setContentText(context.getString(R.string.notification_public_chat_body))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -522,17 +524,15 @@ object Notifier {
         avatarUrl: String?,
         avatarLoader: (Context, String?) -> Bitmap?,
     ): NotificationCompat.Builder = apply {
-        setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
-        val icon = avatarUrl?.let { avatarLoader(context, it) }
-            ?: NotificationImageLoader.loadBrandIcon(context)
-        icon?.let(::setLargeIcon)
+        avatarUrl?.let { avatarLoader(context, it) }?.let(::setLargeIcon)
     }
 
-    private fun NotificationCompat.Builder.applyBrandIcon(
+    private fun NotificationCompat.Builder.applyPayloadImage(
         context: Context,
+        imageUrl: String?,
     ): NotificationCompat.Builder = apply {
-        setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
-        NotificationImageLoader.loadBrandIcon(context)?.let(::setLargeIcon)
+        imageUrl?.let { NotificationImageLoader.loadNotificationImage(context, it) }
+            ?.let(::setLargeIcon)
     }
 
     private fun requestCode(notificationId: Int, slot: Int): Int = notificationId * 31 + slot

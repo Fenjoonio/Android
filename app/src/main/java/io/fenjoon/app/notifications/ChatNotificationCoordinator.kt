@@ -279,8 +279,8 @@ internal object ChatNotificationCoordinator {
         val publicVersion = publicChatNotification(context)
         val latestWhen = orderedChildren.firstOrNull()?.notification?.`when` ?: System.currentTimeMillis()
         val builder = NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
-            .applyBrandIcon(context)
+            .setSmallIcon(R.drawable.notification_app_icon)
+            .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
             .setContentTitle(context.getString(R.string.notification_chat_group_summary_title))
             .setContentText(summaryLines.firstOrNull() ?: messagesText)
             .setSubText(conversationsText)
@@ -337,8 +337,8 @@ internal object ChatNotificationCoordinator {
 
     private fun publicChatNotification(context: Context): Notification =
         NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
-            .applyBrandIcon(context)
+            .setSmallIcon(R.drawable.notification_app_icon)
+            .setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
             .setContentTitle(context.getString(R.string.notification_public_chat_title))
             .setContentText(context.getString(R.string.notification_public_chat_body))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -394,13 +394,6 @@ internal object ChatNotificationCoordinator {
         val legacy = ChatNotificationIdentity.legacy(conversationId)
         manager.cancel(canonical.tag, canonical.id)
         manager.cancel(legacy.tag, legacy.id)
-    }
-
-    private fun NotificationCompat.Builder.applyBrandIcon(
-        context: Context,
-    ): NotificationCompat.Builder = apply {
-        setColor(ContextCompat.getColor(context, R.color.fenjoon_icon_foreground))
-        NotificationImageLoader.loadBrandIcon(context)?.let(::setLargeIcon)
     }
 
     private fun notificationManager(context: Context): NotificationManager? =
