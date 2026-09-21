@@ -9,5 +9,11 @@
         <item name="colorSurface">@color/fenjoon_background</item>
         <item name="colorOnSurface">@color/fenjoon_foreground</item>
         <item name="colorOutline">@color/fenjoon_border</item>
+
+        <item name="colorAccent">@color/fenjoon_primary</item>
+        <item name="android:colorAccent">@color/fenjoon_primary</item>
+        <item name="colorControlActivated">@color/fenjoon_primary</item>
+        <item name="android:colorControlActivated">@color/fenjoon_primary</item>
+        <item name="android:textColorHighlight">@color/fenjoon_selection_highlight</item>
     </style>
 </resources>

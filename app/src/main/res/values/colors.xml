@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="fenjoon_primary">#9C6B4A</color>
+    <color name="fenjoon_selection_highlight">#409C6B4A</color>
     <color name="fenjoon_background">#F5ECE3</color>
     <color name="fenjoon_foreground">#3E3E3E</color>
     <color name="fenjoon_soft_background">#FAFAFA</color>
