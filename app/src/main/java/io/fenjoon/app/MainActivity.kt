@@ -732,6 +732,8 @@ fun FenjoonWebView(
     BackHandler {
         if (webView.canGoBack()) {
             webView.goBack()
+        } else if (!webView.url.isFenjoonHomePage()) {
+            webView.loadUrl(FENJOON_START_URL)
         } else {
             (context as? Activity)?.finish()
         }
@@ -1082,6 +1084,12 @@ private fun String?.isFenjoonWebPage(): Boolean {
     if (this == null) return false
     val uri = Uri.parse(this)
     return uri.scheme == "https" && uri.host == FENJOON_HOST && uri.port == -1
+}
+
+private fun String?.isFenjoonHomePage(): Boolean {
+    if (!isFenjoonWebPage()) return false
+    val path = Uri.parse(this).path
+    return path.isNullOrEmpty() || path == "/"
 }
 
 private fun Uri.isFenjoonUrl(): Boolean {
