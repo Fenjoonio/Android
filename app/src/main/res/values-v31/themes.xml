@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Fenjoon.Launch" parent="Theme.Fenjoon">
+        <item name="android:windowSplashScreenBackground">@color/fenjoon_background</item>
+        <!-- Match the first frame of the animated Compose splash without showing the launcher tile. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+    </style>
+</resources>
