@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One layout for every launcher shape and density, in both light and dark mode. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/fenjoon_icon_background" />
+    <foreground android:drawable="@drawable/launcher_foreground" />
+</adaptive-icon>

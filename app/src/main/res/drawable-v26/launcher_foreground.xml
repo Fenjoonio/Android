@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The 512-unit artwork sits inside a 768-unit canvas: proportional 18/108 margins. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="768"
+    android:viewportHeight="768">
+    <group android:translateX="128" android:translateY="128">
+        <clip-path android:pathData="M0,0H512V512H0Z" />
+        <path
+            android:fillColor="@color/fenjoon_icon_foreground"
+            android:pathData="@string/fenjoon_icon_path" />
+    </group>
+</vector>
