@@ -872,10 +872,19 @@ private fun FenjoonWebView(
     }
 
     BackHandler {
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            (context as? Activity)?.finish()
+        // Home is the exit point even when a notification page precedes it in
+        // history. Let the frontend's temporary modal entry handle Back first.
+        webView.evaluateJavascript(
+            """
+            window.location.pathname === '/' &&
+                !(window.history.state && window.history.state.__fenjoonModalBack);
+            """.trimIndent()
+        ) { shouldExitFromHome ->
+            if (shouldExitFromHome != "true" && webView.canGoBack()) {
+                webView.goBack()
+            } else {
+                (context as? Activity)?.finish()
+            }
         }
     }
 
