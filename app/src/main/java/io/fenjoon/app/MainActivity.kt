@@ -260,23 +260,35 @@ private const val THEME_SYNC_SCRIPT = """
 (function() {
   if (window.__fenjoonThemeObserver) return;
 
-  var root = document.documentElement;
   var bridge = window.$THEME_BRIDGE_NAME;
-  if (!root || !bridge) return;
+  if (!bridge) return;
 
-  function syncTheme() {
-    var theme = root.getAttribute('data-theme');
-    if (theme === 'dark' || theme === 'light') {
-      bridge.setTheme(theme === 'dark');
+  function observeTheme() {
+    var root = document.documentElement;
+    if (!root) return;
+
+    function syncTheme() {
+      var theme = root.classList.contains('dark') ? 'dark' :
+        root.classList.contains('light') ? 'light' : root.getAttribute('data-theme');
+      if (theme === 'dark' || theme === 'light') {
+        bridge.setTheme(theme === 'dark');
+      }
     }
+
+    new MutationObserver(syncTheme).observe(root, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme']
+    });
+    syncTheme();
   }
 
-  new MutationObserver(syncTheme).observe(root, {
-    attributes: true,
-    attributeFilter: ['data-theme']
-  });
   window.__fenjoonThemeObserver = true;
-  syncTheme();
+  if (document.documentElement) {
+    observeTheme();
+  } else {
+    // Document-start injection can run before the root element is parsed.
+    document.addEventListener('DOMContentLoaded', observeTheme, { once: true });
+  }
 })();
 """
 

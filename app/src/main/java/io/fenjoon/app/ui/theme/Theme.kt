@@ -18,8 +18,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = FenjoonPrimary,
-    onPrimary = FenjoonDarkForeground,
+    primary = FenjoonDarkPrimary,
+    onPrimary = FenjoonDarkOnPrimary,
     secondary = FenjoonDarkSoftForeground,
     onSecondary = FenjoonDarkBackground,
     tertiary = FenjoonWarning,
@@ -31,13 +31,13 @@ private val DarkColorScheme = darkColorScheme(
     surfaceVariant = FenjoonDarkSoftBackground,
     onSurfaceVariant = FenjoonDarkSoftForeground,
     outline = FenjoonDarkBorder,
-    error = FenjoonDanger,
+    error = FenjoonDarkDanger,
     onError = FenjoonDarkForeground
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = FenjoonPrimary,
-    onPrimary = FenjoonLightSoftBackground,
+    primary = FenjoonLightPrimary,
+    onPrimary = FenjoonLightOnPrimary,
     secondary = FenjoonLightSoftForeground,
     onSecondary = FenjoonLightSoftBackground,
     tertiary = FenjoonWarning,
@@ -49,7 +49,7 @@ private val LightColorScheme = lightColorScheme(
     surfaceVariant = FenjoonLightSoftBackground,
     onSurfaceVariant = FenjoonLightSoftForeground,
     outline = FenjoonLightBorder,
-    error = FenjoonDanger,
+    error = FenjoonLightDanger,
     onError = FenjoonLightSoftBackground
 )
 

@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="fenjoon_primary">#9C6B4A</color>
+    <color name="fenjoon_primary">#8D5E3F</color>
+    <color name="fenjoon_on_primary">#FAF8F6</color>
     <color name="fenjoon_background">#F5ECE3</color>
     <color name="fenjoon_foreground">#3E3E3E</color>
     <color name="fenjoon_soft_background">#FAFAFA</color>
     <color name="fenjoon_soft_foreground">#404040</color>
     <color name="fenjoon_border">#CFCFCF</color>
-    <color name="fenjoon_icon_background">#F5ECE3</color>
-    <color name="fenjoon_icon_foreground">#2E2E2E</color>
+    <color name="fenjoon_icon_background">@color/fenjoon_background</color>
+    <color name="fenjoon_icon_foreground">@color/fenjoon_foreground</color>
 </resources>
