@@ -19,3 +19,14 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# WebView JS bridges are looked up reflectively by the WebView; keep annotated methods.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keep class io.fenjoon.app.NotificationBridge { *; }
+-keep class io.fenjoon.app.WebAppInterface { *; }
+-keep class io.fenjoon.app.ThemeBridge { *; }
+
+# WorkManager's Room database is instantiated reflectively (Room.getGeneratedImplementation);
+# R8 otherwise strips the generated no-arg constructor and the app crashes at startup.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }

@@ -279,7 +279,7 @@ internal object ChatNotificationCoordinator {
         val publicVersion = publicChatNotification(context)
         val latestWhen = orderedChildren.firstOrNull()?.notification?.`when` ?: System.currentTimeMillis()
         val builder = NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_small_icon)
             .applyBrandIcon(context)
             .setContentTitle(context.getString(R.string.notification_chat_group_summary_title))
             .setContentText(summaryLines.firstOrNull() ?: messagesText)
@@ -337,7 +337,7 @@ internal object ChatNotificationCoordinator {
 
     private fun publicChatNotification(context: Context): Notification =
         NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_small_icon)
             .applyBrandIcon(context)
             .setContentTitle(context.getString(R.string.notification_public_chat_title))
             .setContentText(context.getString(R.string.notification_public_chat_body))

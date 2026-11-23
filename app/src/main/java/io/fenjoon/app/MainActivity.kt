@@ -27,6 +27,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -892,10 +893,15 @@ private fun FenjoonWebView(
                 !(window.history.state && window.history.state.__fenjoonModalBack);
             """.trimIndent()
         ) { shouldExitFromHome ->
-            if (shouldExitFromHome != "true" && webView.canGoBack()) {
-                webView.goBack()
-            } else {
-                (context as? Activity)?.finish()
+            when {
+                shouldExitFromHome == "true" -> (context as? Activity)?.finish()
+                webView.canGoBack() -> webView.goBack()
+                // Not on home but no history to pop (e.g. opened from a
+                // notification): go home instead of closing the app. If the
+                // script result is unavailable, fall back to exiting.
+                shouldExitFromHome == "false" ->
+                    webView.evaluateJavascript("window.location.replace('/');", null)
+                else -> (context as? Activity)?.finish()
             }
         }
     }
@@ -1121,6 +1127,20 @@ private class FenjoonWebViewClient(
         error: WebResourceError
     ) {
         if (request.isForMainFrame) {
+            onLoadingChanged(false)
+            onError()
+        }
+    }
+
+    override fun onReceivedHttpError(
+        view: WebView,
+        request: WebResourceRequest,
+        errorResponse: WebResourceResponse
+    ) {
+        // A 5xx page (e.g. 503 during a deploy) must never be served from the HTTP
+        // cache afterwards: drop it and show the retry screen instead.
+        if (request.isForMainFrame && errorResponse.statusCode >= 500) {
+            view.clearCache(true)
             onLoadingChanged(false)
             onError()
         }

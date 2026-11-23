@@ -129,7 +129,7 @@ object Notifier {
             notificationId = identity.id,
         )
         val builder = NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_small_icon)
             .applyBrandIcon(context)
             .setContentTitle(payload.title)
             .setContentText(payload.body)
@@ -181,7 +181,7 @@ object Notifier {
         context: Context,
         payload: NotificationPayload,
     ): NotificationCompat.Builder = NotificationCompat.Builder(context, payload.type.channelId)
-        .setSmallIcon(R.drawable.adaptive_icon)
+        .setSmallIcon(R.drawable.notification_small_icon)
         .applyBrandIcon(context)
         .setContentTitle(payload.title)
         .setContentText(payload.body)
@@ -226,7 +226,7 @@ object Notifier {
             context.getString(R.string.notification_public_urgent_title)
         }
         val builder = NotificationCompat.Builder(context, NotificationChannels.URGENT)
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_small_icon)
             .applyBrandIcon(context)
             .setContentTitle(title)
             .setContentText(payload.body)
@@ -254,7 +254,7 @@ object Notifier {
             NotificationCompat.PRIORITY_HIGH
         }
         return NotificationCompat.Builder(context, type.channelId)
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_small_icon)
             .applyBrandIcon(context)
             .setContentTitle(context.getString(titleRes))
             .setContentText(context.getString(R.string.notification_public_generic_body))
@@ -309,7 +309,7 @@ object Notifier {
             // Title/text remain available to launchers, accessibility services, and degraded hosts.
             .setContentTitle(presentation.title)
             .setContentText(formatInboxLine(presentation, presentation.messages.last()))
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_small_icon)
             .applyChatIcon(context, presentation.avatarUrl, avatarLoader)
             .setStyle(inboxStyle(presentation))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -332,7 +332,7 @@ object Notifier {
 
     private fun publicChatNotification(context: Context) =
         NotificationCompat.Builder(context, NotificationChannels.CHAT)
-            .setSmallIcon(R.drawable.adaptive_icon)
+            .setSmallIcon(R.drawable.notification_small_icon)
             .applyBrandIcon(context)
             .setContentTitle(context.getString(R.string.notification_public_chat_title))
             .setContentText(context.getString(R.string.notification_public_chat_body))
