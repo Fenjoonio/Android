@@ -26,6 +26,21 @@
 -keep class io.fenjoon.app.NotificationBridge { *; }
 -keep class io.fenjoon.app.WebAppInterface { *; }
 -keep class io.fenjoon.app.ThemeBridge { *; }
+-keep class io.fenjoon.app.billing.BillingBridge { *; }
+
+# Store billing SDKs (only present in their own flavors). Poolakey ships empty consumer rules, so
+# keep it rather than risk R8 stripping it.
+-keep class ir.cafebazaar.poolakey.** { *; }
+# Myket's documented keep rules: https://myket.ir/docs/technical/iab/android/
+-keep class ir.myket.billingclient.** { *; }
+-keep interface ir.myket.billingclient.** { *; }
+-keep class com.android.vending.billing.** { *; }
+-keepclassmembers class ir.myket.billingclient.util.** {
+    public <fields>;
+    public <methods>;
+}
+-dontwarn ir.cafebazaar.poolakey.**
+-dontwarn ir.myket.billingclient.**
 
 # WorkManager's Room database is instantiated reflectively (Room.getGeneratedImplementation);
 # R8 otherwise strips the generated no-arg constructor and the app crashes at startup.

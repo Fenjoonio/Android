@@ -88,6 +88,10 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.google.android.gms.auth.api.phone.SmsRetriever
+import io.fenjoon.app.billing.BillingBridge
+import io.fenjoon.app.billing.PlanCatalog
+import io.fenjoon.app.billing.StoreBilling
+import io.fenjoon.app.billing.createStoreBilling
 import io.fenjoon.app.notifications.ChatNotificationOpenIntent
 import io.fenjoon.app.notifications.NotificationActionExtras
 import io.fenjoon.app.notifications.NotificationActionHttpClient
@@ -106,7 +110,10 @@ private const val FENJOON_URL = "https://app.fenjoon.io"
 private const val FENJOON_START_URL = "$FENJOON_URL?utm_source=direct"
 private const val FENJOON_SCHEME = "fenjoon"
 private const val FENJOON_HOST = "app.fenjoon.io"
-private const val FENJOON_USER_AGENT = "Fenjoon-WebView"
+// The web app reads the "Fenjoon-WebView" prefix to detect the native shell; the
+// store suffix lets the backend pick the matching in-app billing provider.
+private val FENJOON_USER_AGENT =
+    "Fenjoon-WebView/${BuildConfig.VERSION_NAME} (store=${BuildConfig.STORE})"
 private const val SHARE_BRIDGE_NAME = "AndroidShare"
 private const val ANDROID_BRIDGE_NAME = "Android"
 private const val START_OTP_LISTENING_MESSAGE = "startOtpListening"
@@ -115,6 +122,7 @@ private const val OTP_VERIFICATION_PAGE_CLOSED_MESSAGE = "otpVerificationPageClo
 private const val OTP_RECEIVED_EVENT = "fenjoonOtpReceived"
 private const val NOTIFICATIONS_BRIDGE_NAME = "AndroidNotifications"
 private const val THEME_BRIDGE_NAME = "AndroidTheme"
+private const val BILLING_BRIDGE_NAME = "AndroidBilling"
 private const val STATE_NOTIFICATION_OPEN_KEY = "state_notification_open_key"
 private const val STATE_NATIVE_TARGET_URL_KEY = "state_native_target_url_key"
 private const val STATE_WEB_VIEW_KEY = "state_web_view_key"
@@ -334,9 +342,12 @@ class MainActivity : ComponentActivity() {
     private var lastAppliedNativeTargetUrl = FENJOON_START_URL
     private var lastHandledNotificationOpen: String? = null
     private lateinit var webViewStateHolder: WebViewStateHolder
+    // Null in direct builds, which pay through ZarinPal on the web.
+    private var storeBilling: StoreBilling? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        storeBilling = createStoreBilling(this)
         lastHandledNotificationOpen = savedInstanceState?.getString(STATE_NOTIFICATION_OPEN_KEY)
         webViewStateHolder = WebViewStateHolder(
             savedInstanceState?.getBundle(STATE_WEB_VIEW_KEY)
@@ -367,7 +378,8 @@ class MainActivity : ComponentActivity() {
                         onNativeTargetApplied = { appliedUrl ->
                             lastAppliedNativeTargetUrl = appliedUrl
                         },
-                        onThemeChanged = { webThemeIsDark = it }
+                        onThemeChanged = { webThemeIsDark = it },
+                        storeBilling = storeBilling
                     )
                 }
             }
@@ -433,6 +445,12 @@ class MainActivity : ComponentActivity() {
         NotificationPresentationState.setActivityForeground(false)
         super.onPause()
     }
+
+    override fun onDestroy() {
+        storeBilling?.dispose()
+        storeBilling = null
+        super.onDestroy()
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -445,7 +463,8 @@ private fun FenjoonWebView(
     preferRestoredPage: Boolean,
     onRestoredPageAccepted: (String) -> Unit,
     onNativeTargetApplied: (String) -> Unit,
-    onThemeChanged: (Boolean) -> Unit
+    onThemeChanged: (Boolean) -> Unit,
+    storeBilling: StoreBilling? = null
 ) {
     val context = LocalContext.current
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
@@ -724,6 +743,10 @@ private fun FenjoonWebView(
                 ThemeBridge(context as Activity, onThemeChanged),
                 THEME_BRIDGE_NAME
             )
+            storeBilling?.let {
+                PlanCatalog.load(context)
+                addJavascriptInterface(BillingBridge(it, this), BILLING_BRIDGE_NAME)
+            }
             // Inject native capabilities before any page script runs. onPageStarted
             // below is the fallback for WebViews without DOCUMENT_START_SCRIPT.
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
